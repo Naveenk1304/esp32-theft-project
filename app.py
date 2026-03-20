@@ -1,4 +1,4 @@
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
 import pandas as pd
 import os
@@ -49,7 +49,6 @@ def send_email(to_email, subject, message):
     except Exception as e:
         print(f"Email Error: {e}")
         return False, str(e)
- from flask import send_file
 
 @app.route("/")
 def index():
