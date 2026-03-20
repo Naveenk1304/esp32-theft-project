@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AlertPulse — SMS Bot Alert System</title>
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #050810;
+    --surface: #0d1220;
+    --surface2: #141c2e;
+    --accent: #00f5c4;
+    --accent2: #ff3e6c;
+    --accent3: #7c3aed;
+    --text: #e8edf5;
+    --muted: #6b7a99;
+    --border: rgba(0,245,196,0.15);
+    --glow: 0 0 30px rgba(0,245,196,0.25);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Syne', sans-serif;
+    overflow-x: hidden;
+    cursor: none;
+  }
+
+  /* Custom cursor */
+  .cursor {
+    width: 12px; height: 12px;
+    background: var(--accent);
+    border-radius: 50%;
+    position: fixed; top: 0; left: 0;
+    pointer-events: none; z-index: 9999;
+    transition: transform 0.1s;
+    mix-blend-mode: screen;
+  }
+  .cursor-ring {
+    width: 36px; height: 36px;
+    border: 1px solid rgba(0,245,196,0.5);
+    border-radius: 50%;
+    position: fixed; top: 0; left: 0;
+    pointer-events: none; z-index: 9998;
+    transition: transform 0.15s, width 0.2s, height 0.2s;
+    mix-blend-mode: screen;
+  }
+
+  /* Grid background */
+  body::before {
+    content: '';
+    position: fixed; inset: 0;
+    background-image:
+      linear-gradient(rgba(0,245,196,0.03) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(0,245,196,0.03) 1px, transparent 1px);
+    background-size: 50px 50px;
+    pointer-events: none; z-index: 0;
+  }
+
+  /* ─── NAV ─── */
+  nav {
+    position: fixed; top: 0; width: 100%; z-index: 100;
+    padding: 20px 5%;
+    display: flex; align-items: center; justify-content: space-between;
+    background: linear-gradient(180deg, rgba(5,8,16,0.95) 0%, transparent 100%);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(0,245,196,0.08);
+  }
+  .logo {
+    font-size: 1.4rem; font-weight: 800; letter-spacing: -0.5px;
+    color: var(--accent); text-decoration: none;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-icon {
+    width: 32px; height: 32px;
+    background: var(--accent);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    animation: pulse-icon 2s ease-in-out infinite;
+  }
+  @keyframes pulse-icon {
+    0%,100% { box-shadow: 0 0 0 0 rgba(0,245,196,0.4); }
+    50% { box-shadow: 0 0 0 12px rgba(0,245,196,0); }
+  }
+  .logo-icon svg { width: 18px; height: 18px; }
+  nav ul { list-style: none; display: flex; gap: 36px; }
+  nav ul a {
+    color: var(--muted); text-decoration: none;
+    font-size: 0.9rem; font-weight: 600; letter-spacing: 0.5px;
+    transition: color 0.2s; position: relative;
+  }
+  nav ul a:hover { color: var(--accent); }
+  .nav-cta {
+    background: var(--accent); color: var(--bg) !important;
+    padding: 10px 22px; border-radius: 6px;
+    font-weight: 700 !important; transition: box-shadow 0.2s, transform 0.2s !important;
+  }
+  .nav-cta:hover { box-shadow: var(--glow); transform: translateY(-1px); }
+
+  /* ─── HERO ─── */
+  .hero {
+    min-height: 100vh;
+    display: flex; align-items: center; justify-content: center;
+    padding: 120px 5% 80px;
+    position: relative; z-index: 1;
+  }
+  .hero-inner {
+    max-width: 900px; text-align: center;
+  }
+  .hero-badge {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: rgba(0,245,196,0.08);
+    border: 1px solid rgba(0,245,196,0.2);
+    padding: 8px 18px; border-radius: 100px;
+    font-size: 0.8rem; font-weight: 700; letter-spacing: 1px;
+    color: var(--accent); text-transform: uppercase;
+    margin-bottom: 32px;
+    animation: fadeUp 0.6s ease both;
+  }
+  .badge-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--accent);
+    animation: blink 1.2s ease-in-out infinite;
+  }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  h1 {
+    font-size: clamp(2.8rem, 7vw, 5.5rem);
+    font-weight: 800; line-height: 1.05;
+    letter-spacing: -2px;
+    margin-bottom: 24px;
+    animation: fadeUp 0.6s 0.1s ease both;
+  }
+  h1 .line-accent { color: var(--accent); }
+  h1 .line-danger { color: var(--accent2); }
+
+  .hero-sub {
+    font-size: 1.15rem; color: var(--muted);
+    max-width: 560px; margin: 0 auto 48px;
+    line-height: 1.7; font-weight: 400;
+    animation: fadeUp 0.6s 0.2s ease both;
+  }
+
+  .hero-btns {
+    display: flex; gap: 16px; justify-content: center; flex-wrap: wrap;
+    animation: fadeUp 0.6s 0.3s ease both;
+  }
+  .btn-primary {
+    background: var(--accent); color: var(--bg);
+    padding: 16px 36px; border: none; border-radius: 8px;
+    font-family: 'Syne', sans-serif; font-size: 1rem; font-weight: 700;
+    cursor: pointer; transition: all 0.2s;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .btn-primary:hover { box-shadow: var(--glow); transform: translateY(-2px); }
+  .btn-ghost {
+    background: transparent; color: var(--text);
+    padding: 16px 36px; border: 1px solid var(--border); border-radius: 8px;
+    font-family: 'Syne', sans-serif; font-size: 1rem; font-weight: 600;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .btn-ghost:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* floating SMS preview */
+  .sms-float {
+    position: absolute;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 16px 20px;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.75rem;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+    animation: float 4s ease-in-out infinite;
+  }
+  .sms-float-1 {
+    top: 22%; right: 4%;
+    animation-delay: 0s;
+    border-left: 3px solid var(--accent);
+  }
+  .sms-float-2 {
+    bottom: 25%; left: 3%;
+    animation-delay: 1.5s;
+    border-left: 3px solid var(--accent2);
+  }
+  .sms-sender { color: var(--accent); font-weight: 700; margin-bottom: 6px; font-size: 0.65rem; }
+  .sms-sender-2 { color: var(--accent2); }
+  .sms-text { color: var(--text); line-height: 1.5; max-width: 220px; }
+  .sms-time { color: var(--muted); font-size: 0.6rem; margin-top: 8px; }
+
+  @keyframes float {
+    0%,100% { transform: translateY(0px); }
+    50% { transform: translateY(-12px); }
+  }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(24px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* ─── STATS ─── */
+  .stats {
+    display: flex; justify-content: center; gap: 0;
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    position: relative; z-index: 1;
+  }
+  .stat {
+    flex: 1; max-width: 240px;
+    padding: 40px 20px; text-align: center;
+    border-right: 1px solid var(--border);
+  }
+  .stat:last-child { border-right: none; }
+  .stat-num {
+    font-size: 2.5rem; font-weight: 800; color: var(--accent);
+    letter-spacing: -1px; display: block;
+    font-family: 'Space Mono', monospace;
+  }
+  .stat-label { color: var(--muted); font-size: 0.85rem; margin-top: 6px; }
+
+  /* ─── SECTION STYLES ─── */
+  section { padding: 100px 5%; position: relative; z-index: 1; }
+  .section-label {
+    display: inline-block;
+    font-size: 0.7rem; font-weight: 700; letter-spacing: 3px;
+    text-transform: uppercase; color: var(--accent);
+    margin-bottom: 16px;
+  }
+  .section-title {
+    font-size: clamp(1.8rem, 4vw, 3rem); font-weight: 800;
+    letter-spacing: -1px; margin-bottom: 16px; line-height: 1.1;
+  }
+  .section-sub { color: var(--muted); font-size: 1rem; max-width: 500px; line-height: 1.7; }
+
+  /* ─── HOW IT WORKS ─── */
+  .how-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 2px; margin-top: 60px;
+    border: 1px solid var(--border);
+  }
+  .how-item {
+    background: var(--surface);
+    padding: 40px 32px;
+    position: relative; overflow: hidden;
+    transition: background 0.3s;
+  }
+  .how-item:hover { background: var(--surface2); }
+  .how-item::after {
+    content: '';
+    position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+    background: var(--accent);
+    transform: scaleX(0); transform-origin: left;
+    transition: transform 0.3s;
+  }
+  .how-item:hover::after { transform: scaleX(1); }
+  .how-num {
+    font-family: 'Space Mono', monospace;
+    font-size: 3rem; font-weight: 700;
+    color: rgba(0,245,196,0.1); letter-spacing: -2px;
+    margin-bottom: 20px; display: block;
+  }
+  .how-icon {
+    width: 48px; height: 48px;
+    background: rgba(0,245,196,0.1);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 20px;
+    font-size: 1.4rem;
+  }
+  .how-item h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 10px; }
+  .how-item p { color: var(--muted); font-size: 0.9rem; line-height: 1.6; }
+
+  /* ─── FEATURES ─── */
+  .features-layout {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 60px; align-items: center; margin-top: 60px;
+  }
+  .feature-list { display: flex; flex-direction: column; gap: 24px; }
+  .feature-item {
+    display: flex; gap: 18px; align-items: flex-start;
+    padding: 24px;
+    background: var(--surface);
+    border: 1px solid transparent;
+    border-radius: 12px;
+    transition: all 0.3s;
+    cursor: pointer;
+  }
+  .feature-item.active,
+  .feature-item:hover {
+    border-color: var(--border);
+    background: var(--surface2);
+    box-shadow: inset 4px 0 0 var(--accent);
+  }
+  .feature-icon {
+    width: 44px; height: 44px; flex-shrink: 0;
+    background: rgba(0,245,196,0.08);
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.2rem;
+  }
+  .feature-item h4 { font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
+  .feature-item p { color: var(--muted); font-size: 0.85rem; line-height: 1.5; }
+
+  .feature-demo {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px; overflow: hidden;
+  }
+  .demo-topbar {
+    background: var(--surface2);
+    padding: 14px 20px;
+    display: flex; align-items: center; gap: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .demo-dot { width: 10px; height: 10px; border-radius: 50%; }
+  .demo-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 0.7rem; color: var(--muted);
+    margin-left: 8px; letter-spacing: 1px;
+  }
+  .demo-body { padding: 30px; }
+  .demo-phone {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    font-family: 'Space Mono', monospace;
+    font-size: 0.8rem;
+  }
+  .demo-line { margin-bottom: 16px; }
+  .demo-label { color: var(--muted); font-size: 0.65rem; letter-spacing: 1px; margin-bottom: 4px; }
+  .demo-value { color: var(--text); }
+  .demo-value.green { color: var(--accent); }
+  .demo-value.red { color: var(--accent2); }
+  .demo-msg-bubble {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 12px 12px 12px 0;
+    padding: 14px 16px;
+    font-size: 0.8rem; line-height: 1.6;
+    margin-top: 16px;
+    position: relative;
+    animation: typein 0.5s ease both;
+  }
+  @keyframes typein {
+    from { opacity:0; transform: translateY(8px) scale(0.97); }
+    to { opacity:1; transform: translateY(0) scale(1); }
+  }
+  .demo-msg-bubble::before {
+    content: '📱 AlertPulse Bot';
+    display: block; color: var(--accent);
+    font-size: 0.65rem; font-weight: 700; margin-bottom: 8px;
+  }
+
+  /* ─── ALERT CONFIGURATOR ─── */
+  .configurator {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: 48px; max-width: 800px; margin: 60px auto 0;
+  }
+  .config-title { font-size: 1.4rem; font-weight: 700; margin-bottom: 32px; }
+  .config-grid { display: grid; grid-template-columns: 1fr; gap: 20px; }
+  .field { display: flex; flex-direction: column; gap: 8px; }
+  .field label {
+    font-size: 0.75rem; font-weight: 700; letter-spacing: 1px;
+    text-transform: uppercase; color: var(--muted);
+  }
+  .field input, .field select, .field textarea {
+    background: var(--bg);
+    border: 1px solid rgba(0,245,196,0.15);
+    border-radius: 8px; padding: 14px 16px;
+    color: var(--text); font-family: 'Space Mono', monospace; font-size: 0.85rem;
+    outline: none; transition: border-color 0.2s;
+    resize: none;
+  }
+  .field input:focus, .field select:focus, .field textarea:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(0,245,196,0.1);
+  }
+  .field select option { background: var(--surface); }
+  .field.full { grid-column: 1 / -1; }
+  .config-btns { display: flex; gap: 12px; margin-top: 24px; }
+  .btn-send {
+    background: var(--accent); color: var(--bg);
+    border: none; border-radius: 8px;
+    padding: 14px 28px;
+    font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.95rem;
+    cursor: pointer; transition: all 0.2s;
+    display: flex; align-items: center; gap: 8px; width: 100%; justify-content: center;
+  }
+  .btn-send:hover { opacity: 0.9; transform: translateY(-2px); box-shadow: var(--glow); }
+  
+  #otp-section { display: none; }
+  .hidden { display: none !important; }
+  }
+  .btn-preview:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* alert log */
+  .alert-log { margin-top: 32px; }
+  .log-title { font-size: 0.75rem; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; }
+  .log-item {
+    display: flex; align-items: flex-start; gap: 12px;
+    padding: 14px 0;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    font-family: 'Space Mono', monospace; font-size: 0.75rem;
+  }
+  .log-dot { width: 8px; height: 8px; border-radius: 50%; margin-top: 4px; flex-shrink: 0; }
+  .dot-success { background: var(--accent); box-shadow: 0 0 8px var(--accent); }
+  .dot-warning { background: #fbbf24; box-shadow: 0 0 8px #fbbf24; }
+  .dot-error { background: var(--accent2); box-shadow: 0 0 8px var(--accent2); }
+  .log-info { flex: 1; }
+  .log-msg { color: var(--text); margin-bottom: 3px; }
+  .log-meta { color: var(--muted); font-size: 0.65rem; }
+  .log-status { font-size: 0.65rem; padding: 3px 10px; border-radius: 100px; font-weight: 700; }
+  .status-sent { background: rgba(0,245,196,0.1); color: var(--accent); }
+  .status-queued { background: rgba(251,191,36,0.1); color: #fbbf24; }
+  .status-failed { background: rgba(255,62,108,0.1); color: var(--accent2); }
+
+  /* ─── PRICING ─── */
+  .pricing-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 24px; margin-top: 60px;
+  }
+  .plan {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px; padding: 40px 32px;
+    position: relative; transition: all 0.3s;
+  }
+  .plan:hover { transform: translateY(-4px); border-color: rgba(0,245,196,0.3); }
+  .plan.popular {
+    border-color: var(--accent);
+    background: linear-gradient(135deg, rgba(0,245,196,0.05), var(--surface));
+  }
+  .popular-badge {
+    position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+    background: var(--accent); color: var(--bg);
+    padding: 4px 16px; border-radius: 100px;
+    font-size: 0.65rem; font-weight: 800; letter-spacing: 1px; text-transform: uppercase;
+    white-space: nowrap;
+  }
+  .plan-name { font-size: 0.8rem; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--muted); margin-bottom: 16px; }
+  .plan-price {
+    font-family: 'Space Mono', monospace;
+    font-size: 3rem; font-weight: 700; letter-spacing: -2px;
+    margin-bottom: 4px;
+  }
+  .plan-price span { font-size: 1rem; font-weight: 400; color: var(--muted); }
+  .plan-desc { color: var(--muted); font-size: 0.85rem; margin-bottom: 28px; }
+  .plan-features { list-style: none; display: flex; flex-direction: column; gap: 12px; margin-bottom: 36px; }
+  .plan-features li {
+    display: flex; gap: 10px; align-items: center;
+    font-size: 0.88rem; color: var(--text);
+  }
+  .plan-features li::before { content: '✓'; color: var(--accent); font-weight: 700; font-family: 'Space Mono'; }
+  .plan-features li.muted::before { content: '✗'; color: var(--muted); }
+  .plan-features li.muted { color: var(--muted); }
+  .btn-plan {
+    width: 100%; padding: 14px; border-radius: 8px;
+    font-family: 'Syne', sans-serif; font-weight: 700; font-size: 0.9rem;
+    cursor: pointer; transition: all 0.2s;
+  }
+  .btn-plan-ghost { background: transparent; border: 1px solid var(--border); color: var(--text); }
+  .btn-plan-ghost:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-plan-solid { background: var(--accent); border: 1px solid var(--accent); color: var(--bg); }
+  .btn-plan-solid:hover { box-shadow: var(--glow); }
+
+  /* ─── FOOTER ─── */
+  footer {
+    border-top: 1px solid var(--border);
+    padding: 60px 5% 40px;
+    position: relative; z-index: 1;
+  }
+  .footer-grid {
+    display: grid; grid-template-columns: 2fr 1fr 1fr 1fr;
+    gap: 40px; margin-bottom: 60px;
+  }
+  .footer-brand p { color: var(--muted); font-size: 0.88rem; line-height: 1.7; margin-top: 16px; max-width: 260px; }
+  .footer-col h4 { font-size: 0.75rem; font-weight: 700; letter-spacing: 2px; text-transform: uppercase; color: var(--accent); margin-bottom: 16px; }
+  .footer-col ul { list-style: none; display: flex; flex-direction: column; gap: 10px; }
+  .footer-col ul li a { color: var(--muted); text-decoration: none; font-size: 0.88rem; transition: color 0.2s; }
+  .footer-col ul li a:hover { color: var(--text); }
+  .footer-bottom {
+    display: flex; justify-content: space-between; align-items: center;
+    padding-top: 32px; border-top: 1px solid var(--border);
+    color: var(--muted); font-size: 0.8rem;
+  }
+  .footer-bottom a { color: var(--accent); text-decoration: none; }
+
+  /* ─── TOAST ─── */
+  .toast {
+    position: fixed; bottom: 32px; right: 32px; z-index: 1000;
+    background: var(--surface2);
+    border: 1px solid var(--accent);
+    border-radius: 12px; padding: 16px 24px;
+    font-size: 0.88rem;
+    display: flex; align-items: center; gap: 10px;
+    transform: translateY(80px); opacity: 0;
+    transition: all 0.3s cubic-bezier(0.34,1.56,0.64,1);
+    box-shadow: var(--glow);
+  }
+  .toast.show { transform: translateY(0); opacity: 1; }
+
+  /* responsive */
+  @media (max-width: 900px) {
+    .sms-float { display: none; }
+    .features-layout { grid-template-columns: 1fr; }
+    .config-grid { grid-template-columns: 1fr; }
+    .footer-grid { grid-template-columns: 1fr 1fr; }
+    nav ul { display: none; }
+    .stats { flex-wrap: wrap; }
+    .stat { min-width: 50%; }
+  }
+</style>
+</head>
+<body>
+
+<div class="cursor" id="cur"></div>
+<div class="cursor-ring" id="curRing"></div>
+
+<!-- NAV -->
+<nav>
+  <a class="logo" href="#">
+    <div class="logo-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#050810" stroke-width="2.5" stroke-linecap="round">
+        <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 11 19.79 19.79 0 01.22 2.4 2 2 0 012.18 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.09a16 16 0 006 6l.56-.56a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/>
+      </svg>
+    </div>
+    AlertPulse
+  </a>
+  <ul>
+    <li><a href="#how">How it works</a></li>
+    <li><a href="#features">Features</a></li>
+    <li><a href="#configure">Configure</a></li>
+    <li><a href="#pricing">Pricing</a></li>
+    <li><a class="nav-cta" href="#configure">Start Free</a></li>
+  </ul>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <!-- floating SMS previews -->
+  <div class="sms-float sms-float-1">
+    <div class="sms-sender">⚡ ALERTPULSE BOT</div>
+    <div class="sms-text">🔴 CRITICAL: Server CPU at 98%<br>Node: prod-server-03<br>Action required immediately.</div>
+    <div class="sms-time">Just now · Delivered ✓✓</div>
+  </div>
+  <div class="sms-float sms-float-2">
+    <div class="sms-sender sms-sender-2">🛒 SHOP ALERT BOT</div>
+    <div class="sms-text">New order #4821 received!<br>Amount: ₹2,400<br>Customer: Priya S.</div>
+    <div class="sms-time">2 min ago · Delivered ✓✓</div>
+  </div>
+
+  <div class="hero-inner">
+    <div class="hero-badge"><span class="badge-dot"></span>Real-time SMS Alert System</div>
+    <h1>
+      Your <span class="line-accent">intelligent bot</span><br>sends <span class="line-danger">instant SMS alerts</span><br>when it matters most
+    </h1>
+    <p class="hero-sub">
+      AlertPulse connects your apps, servers, and workflows to an automated SMS bot — delivering the right alert to the right person in under 2 seconds.
+    </p>
+    <div class="hero-btns">
+      <button class="btn-primary" onclick="document.getElementById('configure').scrollIntoView({behavior:'smooth'})">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+        Send Your First Alert
+      </button>
+      <button class="btn-ghost" onclick="document.getElementById('how').scrollIntoView({behavior:'smooth'})">
+        See How It Works →
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- STATS -->
+<div class="stats">
+  <div class="stat"><span class="stat-num" data-target="2.1">0</span><div class="stat-label">Avg. delivery time (sec)</div></div>
+  <div class="stat"><span class="stat-num" data-target="99.9">0</span><div class="stat-label">Uptime SLA (%)</div></div>
+  <div class="stat"><span class="stat-num" data-target="50">0</span><div class="stat-label">Million+ alerts sent</div></div>
+  <div class="stat"><span class="stat-num" data-target="180">0</span><div class="stat-label">Countries supported</div></div>
+</div>
+
+<!-- HOW IT WORKS -->
+<section id="how">
+  <span class="section-label">// Process</span>
+  <h2 class="section-title">From trigger to phone<br>in 3 simple steps</h2>
+  <p class="section-sub">Connect your source, define your rules, let the bot do the rest. No code required.</p>
+
+  <div class="how-grid">
+    <div class="how-item">
+      <span class="how-num">01</span>
+      <div class="how-icon">🔗</div>
+      <h3>Connect Your Source</h3>
+      <p>Link your app, API, database, monitoring tool, or e-commerce platform via webhook or our native integrations.</p>
+    </div>
+    <div class="how-item">
+      <span class="how-num">02</span>
+      <div class="how-icon">⚙️</div>
+      <h3>Define Alert Rules</h3>
+      <p>Set conditions, thresholds, schedules and recipient lists. Build smart filters so only the alerts that matter get through.</p>
+    </div>
+    <div class="how-item">
+      <span class="how-num">03</span>
+      <div class="how-icon">📱</div>
+      <h3>Bot Fires the SMS</h3>
+      <p>AlertPulse bot formats and sends the SMS instantly. Track delivery status in real-time on your dashboard.</p>
+    </div>
+    <div class="how-item">
+      <span class="how-num">04</span>
+      <div class="how-icon">↩️</div>
+      <h3>Two-Way Response</h3>
+      <p>Recipients can reply to the SMS to acknowledge, escalate, or trigger automated follow-up actions — all via text.</p>
+    </div>
+  </div>
+</section>
+
+<!-- FEATURES -->
+<section id="features" style="background: var(--surface); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);">
+  <span class="section-label">// Capabilities</span>
+  <h2 class="section-title">Everything your alert<br>system needs</h2>
+
+  <div class="features-layout">
+    <div class="feature-list">
+      <div class="feature-item active">
+        <div class="feature-icon">🤖</div>
+        <div>
+          <h4>Smart Bot Logic</h4>
+          <p>The bot understands context — it batches related alerts, prevents duplicate spam, and escalates if no one responds.</p>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon">⚡</div>
+        <div>
+          <h4>Sub-2s Delivery</h4>
+          <p>Multi-carrier routing ensures messages arrive in under 2 seconds, even during peak traffic spikes.</p>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon">👥</div>
+        <div>
+          <h4>Group & Escalation Trees</h4>
+          <p>Send to teams, rotate on-call schedules, and auto-escalate up the chain if primary contacts don't respond.</p>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon">🌐</div>
+        <div>
+          <h4>Global Reach</h4>
+          <p>180+ countries, local sender IDs, and language templates. Your alerts speak every language.</p>
+        </div>
+      </div>
+      <div class="feature-item">
+        <div class="feature-icon">📊</div>
+        <div>
+          <h4>Analytics & Audit Trail</h4>
+          <p>Full delivery logs, read receipts, response tracking, and exportable audit reports for compliance.</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="feature-demo">
+      <div class="demo-topbar">
+        <div class="demo-dot" style="background:#ff5f56"></div>
+        <div class="demo-dot" style="background:#ffbd2e"></div>
+        <div class="demo-dot" style="background:#27c93f"></div>
+        <span class="demo-title">ALERTPULSE · LIVE PREVIEW</span>
+      </div>
+      <div class="demo-body">
+        <div class="demo-phone">
+          <div class="demo-line">
+            <div class="demo-label">RECIPIENT</div>
+            <div class="demo-value">+91 98765 43210</div>
+          </div>
+          <div class="demo-line">
+            <div class="demo-label">ALERT TYPE</div>
+            <div class="demo-value red">🔴 CRITICAL</div>
+          </div>
+          <div class="demo-line">
+            <div class="demo-label">STATUS</div>
+            <div class="demo-value green">✓ DELIVERED · 1.4s</div>
+          </div>
+          <div class="demo-msg-bubble" id="demoMsg">
+            🚨 ALERT: Payment gateway DOWN<br>
+            Time: 14:32:07 IST<br>
+            Orders affected: 47<br>
+            <br>Reply YES to acknowledge.<br>Reply ESCALATE to page manager.
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CONFIGURE -->
+<section id="configure">
+  <span class="section-label">// Live Demo</span>
+  <h2 class="section-title">Configure &amp; send<br>a test alert</h2>
+  <p class="section-sub">Try the bot now. Fill in the form below to simulate sending an SMS alert.</p>
+
+  <div class="configurator" id="login-container">
+    <div class="config-title">🔐 Secure Access</div>
+    
+    <div id="email-section">
+      <div class="field">
+        <label>Enter Email Address</label>
+        <input type="email" id="userEmail" placeholder="yourname@example.com">
+      </div>
+      <div class="config-btns">
+        <button class="btn-send" onclick="sendOTP()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+          Send OTP
+        </button>
+      </div>
+    </div>
+
+    <div id="otp-section" style="display:none;">
+      <div class="field">
+        <label>Enter 6-Digit OTP</label>
+        <input type="text" id="userOTP" placeholder="000000">
+      </div>
+      <div class="config-btns">
+        <button class="btn-send" onclick="verifyOTP()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          Verify & Access Dashboard
+        </button>
+      </div>
+    </div>
+
+    <div id="status-msg" style="margin-top: 15px; font-size: 0.9rem; color: var(--accent);"></div>
+  </div>
+</section>
+
+<!-- PRICING -->
+<section id="pricing" style="background: var(--surface); border-top: 1px solid var(--border);">
+  <span class="section-label">// Plans</span>
+  <h2 class="section-title">Simple, transparent<br>pricing</h2>
+  <p class="section-sub">Start free. Scale as you grow. No hidden fees, no surprises.</p>
+
+  <div class="pricing-grid">
+    <div class="plan">
+      <div class="plan-name">Starter</div>
+      <div class="plan-price">Free<span></span></div>
+      <div class="plan-desc">Perfect for personal projects and testing the bot.</div>
+      <ul class="plan-features">
+        <li>500 SMS / month</li>
+        <li>3 alert channels</li>
+        <li>Basic bot logic</li>
+        <li>Email support</li>
+        <li class="muted">Custom sender ID</li>
+        <li class="muted">Two-way SMS</li>
+      </ul>
+      <button class="btn-plan btn-plan-ghost">Get Started Free</button>
+    </div>
+
+    <div class="plan popular">
+      <div class="popular-badge">Most Popular</div>
+      <div class="plan-name">Pro</div>
+      <div class="plan-price">₹2,499<span>/mo</span></div>
+      <div class="plan-desc">For growing teams that need reliability and scale.</div>
+      <ul class="plan-features">
+        <li>10,000 SMS / month</li>
+        <li>Unlimited channels</li>
+        <li>Smart bot logic</li>
+        <li>Two-way SMS replies</li>
+        <li>Custom sender ID</li>
+        <li>Priority support</li>
+      </ul>
+      <button class="btn-plan btn-plan-solid">Start Pro Trial</button>
+    </div>
+
+    <div class="plan">
+      <div class="plan-name">Enterprise</div>
+      <div class="plan-price">Custom<span></span></div>
+      <div class="plan-desc">High-volume, dedicated infrastructure, SLA guarantees.</div>
+      <ul class="plan-features">
+        <li>Unlimited SMS</li>
+        <li>Dedicated bot instance</li>
+        <li>99.99% SLA</li>
+        <li>HIPAA / SOC2 compliance</li>
+        <li>On-premise option</li>
+        <li>24/7 dedicated support</li>
+      </ul>
+      <button class="btn-plan btn-plan-ghost">Contact Sales</button>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="footer-grid">
+    <div class="footer-brand">
+      <a class="logo" href="#" style="font-size:1.2rem">
+        <div class="logo-icon" style="width:28px;height:28px">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#050810" stroke-width="2.5" stroke-linecap="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 11 19.79 19.79 0 01.22 2.4 2 2 0 012.18 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.09a16 16 0 006 6l.56-.56a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>
+        </div>
+        AlertPulse
+      </a>
+      <p>The intelligent SMS alert bot for developers, businesses, and operations teams who can't afford to miss a thing.</p>
+    </div>
+    <div class="footer-col">
+      <h4>Product</h4>
+      <ul>
+        <li><a href="#">Features</a></li>
+        <li><a href="#">Integrations</a></li>
+        <li><a href="#">API Docs</a></li>
+        <li><a href="#">Changelog</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Use Cases</h4>
+      <ul>
+        <li><a href="#">Server Monitoring</a></li>
+        <li><a href="#">E-commerce Orders</a></li>
+        <li><a href="#">OTP & Auth</a></li>
+        <li><a href="#">IoT Alerts</a></li>
+      </ul>
+    </div>
+    <div class="footer-col">
+      <h4>Company</h4>
+      <ul>
+        <li><a href="#">About</a></li>
+        <li><a href="#">Blog</a></li>
+        <li><a href="#">Privacy</a></li>
+        <li><a href="#">Terms</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>© 2025 AlertPulse. Built for reliability.</span>
+    <span>Status: <a href="#">All systems operational ✓</a></span>
+  </div>
+</footer>
+
+<!-- TOAST -->
+<div class="toast" id="toast">
+  <span>📱</span>
+  <span id="toastMsg">Alert sent successfully!</span>
+</div>
+
+<script>
+  // Cursor
+  const cur = document.getElementById('cur');
+  const curRing = document.getElementById('curRing');
+  let mx = 0, my = 0, rx = 0, ry = 0;
+  document.addEventListener('mousemove', e => { mx = e.clientX; my = e.clientY; });
+  (function ani() {
+    rx += (mx - rx) * 0.18; ry += (my - ry) * 0.18;
+    cur.style.transform = `translate(${mx-6}px,${my-6}px)`;
+    curRing.style.transform = `translate(${rx-18}px,${ry-18}px)`;
+    requestAnimationFrame(ani);
+  })();
+
+  // Stat counter
+  document.querySelectorAll('.stat-num').forEach(el => {
+    const target = parseFloat(el.dataset.target);
+    const isDecimal = target % 1 !== 0;
+    let current = 0;
+    const step = target / 60;
+    const interval = setInterval(() => {
+      current = Math.min(current + step, target);
+      el.textContent = isDecimal ? current.toFixed(1) : Math.floor(current);
+      if (current >= target) clearInterval(interval);
+    }, 16);
+  });
+
+  // Feature items
+  document.querySelectorAll('.feature-item').forEach(item => {
+    item.addEventListener('click', () => {
+      document.querySelectorAll('.feature-item').forEach(i => i.classList.remove('active'));
+      item.classList.add('active');
+    });
+  });
+
+  // Toast
+  function showToast(msg) {
+    const t = document.getElementById('toast');
+    document.getElementById('toastMsg').textContent = msg;
+    t.classList.add('show');
+    setTimeout(() => t.classList.remove('show'), 3000);
+  }
+
+  const API_BASE = "http://localhost:5000";
+
+  // Check if user is already verified on page load
+  window.onload = () => {
+    const verifiedUser = localStorage.getItem('verified_user');
+    if (verifiedUser) {
+      checkSensorAndRedirect();
+    }
+  };
+
+  async function checkSensorAndRedirect() {
+    document.getElementById('status-msg').innerText = "Checking sensor connection... ⏳";
+    try {
+      const res = await fetch(`${API_BASE}/sensor-status`);
+      const data = await res.json();
+      if (data.esp_connected) {
+        window.location.href = "dashboard.html";
+      } else {
+        window.location.href = "connection-guide.html";
+      }
+    } catch (err) {
+      document.getElementById('status-msg').innerText = "Backend Error ❌";
+    }
+  }
+
+  async function sendOTP() {
+    const email = document.getElementById('userEmail').value;
+    if (!email) { alert("Please enter an email"); return; }
+    
+    document.getElementById('status-msg').innerText = "Sending OTP... ⏳";
+    try {
+      const res = await fetch(`${API_BASE}/send-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        document.getElementById('email-section').style.display = 'none';
+        document.getElementById('otp-section').style.display = 'block';
+        document.getElementById('status-msg').innerText = "OTP sent to your email! ✅";
+      } else {
+        document.getElementById('status-msg').innerText = "Error: " + (data.message || "Failed to send");
+      }
+    } catch (err) {
+      document.getElementById('status-msg').innerText = "Server Error ❌";
+    }
+  }
+
+  async function verifyOTP() {
+    const email = document.getElementById('userEmail').value;
+    const otp = document.getElementById('userOTP').value;
+    
+    document.getElementById('status-msg').innerText = "Verifying... ⏳";
+    try {
+      const res = await fetch(`${API_BASE}/verify-otp`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, otp })
+      });
+      const data = await res.json();
+      if (data.status === "success") {
+        // Persistence: Save verified email
+        localStorage.setItem('verified_user', email);
+        document.getElementById('status-msg').innerText = "Verified! Checking sensor... 🚀";
+        setTimeout(() => {
+          checkSensorAndRedirect();
+        }, 1000);
+      } else {
+        document.getElementById('status-msg').innerText = "Error: " + (data.message || "Invalid OTP");
+      }
+    } catch (err) {
+      document.getElementById('status-msg').innerText = "Verification Error ❌";
+    }
+  }
+</script>
+</body>
+</html>
