@@ -48,9 +48,9 @@ def send_email(to_email, subject, message):
         server.sendmail(EMAIL_USER, to_email, msg.as_string())
         server.quit()
         return True, "success"
-    except Exception as e:
-        print(f"Email Error: {e}")
-        return False, str(e)
+         except Exception as e:
+        print("FULL EMAIL ERROR:", str(e))  # 🔥 IMPORTANT
+        return False
 
 @app.route("/")
 def index():
@@ -76,13 +76,26 @@ def send_otp():
     try:
         data = request.get_json()
         email = data.get('email')
-        if not email: return jsonify({"status": "error", "message": "Email required"}), 400
+
+        print("Trying to send OTP to:", email)  # ✅ HERE
+
+        if not email:
+            return jsonify({"status": "error", "message": "Email required"}), 400
+
         otp = str(random.randint(100000, 999999))
         OTP_STORE[email] = otp
+
         print(f"OTP for {email}: {otp}")
+
         success, err = send_email(email, "🔐 Verification Code", f"Your OTP is: {otp}")
-        return jsonify({"status": "success" if success else "error", "message": "OTP Sent" if success else err})
+
+        return jsonify({
+            "status": "success" if success else "error",
+            "message": "OTP Sent" if success else err
+        })
+
     except Exception as e:
+        print("SEND OTP ERROR:", str(e))  # 🔥 add this also
         return jsonify({"status": "error", "message": str(e)}), 500
 
 @app.route("/verify-otp", methods=['POST'])
