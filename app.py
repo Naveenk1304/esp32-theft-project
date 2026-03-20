@@ -14,9 +14,11 @@ app = Flask(__name__)
 CORS(app)
 
 # --- CONFIGURATION ---
-EMAIL_USER = "pandi40512@gmail.com" 
-EMAIL_PASS = "pqlkctaddugdsvsx"    
-LIVE_DATA_FILE = 'live_data.csv'
+
+EMAIL_USER = os.environ.get("EMAIL_USER")
+EMAIL_PASS = os.environ.get("EMAIL_PASS")
+print("EMAIL_USER:", EMAIL_USER)
+print("EMAIL_PASS:", EMAIL_PASS)
 
 # Persistence: Stored in memory (could be file for true persistence across restarts)
 LAST_SEEN_TIME = 0 # Unix timestamp of last received sensor data
