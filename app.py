@@ -50,9 +50,14 @@ def send_email(to_email, subject, message):
         print(f"Email Error: {e}")
         return False, str(e)
 
+from flask import send_from_directory
+
 @app.route("/", methods=['GET'])
 def index():
-    return "Server Running 🚀"
+    return send_from_directory(".", "sms-alert-bot.html")
+    @app.route("/dashboard")
+def dashboard():
+    return send_from_directory(".", "dashboard.html")
 
 @app.route("/sensor-status", methods=['GET'])
 def sensor_status():
