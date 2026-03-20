@@ -49,15 +49,16 @@ def send_email(to_email, subject, message):
     except Exception as e:
         print(f"Email Error: {e}")
         return False, str(e)
+ from flask import send_file
 
-from flask import send_from_directory
-
-@app.route("/", methods=['GET'])
+@app.route("/")
 def index():
-    return send_from_directory(".", "sms-alert-bot.html")
-    @app.route("/dashboard")
+    return send_file("sms-alert-bot.html")
+
+@app.route("/dashboard")
 def dashboard():
-    return send_from_directory(".", "dashboard.html")
+    return send_file("dashboard.html")
+    
 
 @app.route("/sensor-status", methods=['GET'])
 def sensor_status():
