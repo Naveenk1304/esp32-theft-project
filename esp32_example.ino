@@ -8,6 +8,7 @@ const char* password = "YOUR_WIFI_PASSWORD";
 
 // Flask Server URL (Replace with your laptop's IP)
 const char* serverName = "http://192.168.1.XX:5000/data";
+const char* userEmail = "yourname@example.com"; // Enter verified email here
 
 void setup() {
   Serial.begin(115200);
@@ -36,6 +37,7 @@ void loop() {
     doc["current"] = current;
     doc["power"] = power;
     doc["energy"] = energy;
+    doc["email"] = userEmail;
 
     String requestBody;
     serializeJson(doc, requestBody);

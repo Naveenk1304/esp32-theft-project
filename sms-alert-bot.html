@@ -892,9 +892,10 @@
   };
 
   async function checkSensorAndRedirect() {
+    const email = localStorage.getItem('verified_user');
     document.getElementById('status-msg').innerText = "Checking sensor connection... ⏳";
     try {
-      const res = await fetch(`${API_BASE}/sensor-status`);
+      const res = await fetch(`${API_BASE}/sensor-status?email=${email}`);
       const data = await res.json();
       if (data.esp_connected) {
         window.location.href = "dashboard.html";

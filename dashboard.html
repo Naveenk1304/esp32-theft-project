@@ -52,7 +52,13 @@
 
     <script>
         const API_BASE = "http://localhost:5000";
+        const USER_EMAIL = localStorage.getItem('verified_user');
         
+        // Redirect if not logged in
+        if (!USER_EMAIL) {
+            window.location.href = "sms-alert-bot.html";
+        }
+
         // Setup Charts
         function createChart(id, label, color) {
             const ctx = document.getElementById(id).getContext('2d');
@@ -85,7 +91,7 @@
                 const res = await fetch(`${API_BASE}/data`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ current, power, energy })
+                    body: JSON.stringify({ current, power, energy, email: USER_EMAIL })
                 });
                 const data = await res.json();
                 document.getElementById('sim-log').innerText = `Backend Result: ${data.prediction} ✅`;
@@ -97,7 +103,7 @@
 
         async function updateStatus() {
             try {
-                const res = await fetch(`${API_BASE}/status`);
+                const res = await fetch(`${API_BASE}/status?email=${USER_EMAIL}`);
                 const data = await res.json();
                 
                 if (data.esp_connected) {
@@ -119,7 +125,7 @@
 
         async function updateData() {
             try {
-                const res = await fetch(`${API_BASE}/history`);
+                const res = await fetch(`${API_BASE}/history?email=${USER_EMAIL}`);
                 const history = await res.json();
 
                 if (history && history.length > 0) {

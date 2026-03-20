@@ -19,7 +19,6 @@ EMAIL_PASS = "pqlkctaddugdsvsx"
 LIVE_DATA_FILE = 'live_data.csv'
 
 # Persistence: Stored in memory (could be file for true persistence across restarts)
-LOGGED_IN_USER_EMAIL = None 
 LAST_SEEN_TIME = 0 # Unix timestamp of last received sensor data
 
 # Temporary OTP Store {email: otp}
@@ -58,6 +57,7 @@ def index():
 @app.route("/sensor-status", methods=['GET'])
 def sensor_status():
     """New API: Returns connection state and last seen time"""
+    email = request.args.get('email') # Accepted but not used for filtering yet
     is_connected = get_sensor_status()
     return jsonify({
         "esp_connected": is_connected,
@@ -80,13 +80,11 @@ def send_otp():
 
 @app.route("/verify-otp", methods=['POST'])
 def verify_otp():
-    global LOGGED_IN_USER_EMAIL
     try:
         data = request.get_json()
         email = data.get('email')
         otp = data.get('otp')
         if OTP_STORE.get(email) == str(otp):
-            LOGGED_IN_USER_EMAIL = email 
             del OTP_STORE[email]
             return jsonify({"status": "success", "verified": True, "email": email})
         return jsonify({"status": "error", "message": "Invalid OTP"}), 401
@@ -107,6 +105,7 @@ def receive_data():
         current = float(data.get('current', 0))
         power = float(data.get('power', 0))
         energy = float(data.get('energy', 0))
+        email = data.get('email') # Receiver email from request
         timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
         # Run AI ONLY if connected (implicitly true if we are here)
@@ -117,10 +116,10 @@ def receive_data():
         row = {"timestamp": timestamp, "current": current, "power": power, "energy": energy, "prediction": prediction_text}
         pd.DataFrame([row]).to_csv(LIVE_DATA_FILE, mode='a', header=not os.path.exists(LIVE_DATA_FILE), index=False)
 
-        # Alert verified user
-        if prediction_code == 1 and LOGGED_IN_USER_EMAIL:
+        # Alert receiver if email provided
+        if prediction_code == 1 and email:
             body = f"🚨 Theft Alert!\nCurrent: {current}A\nPower: {power}W\nTime: {timestamp}"
-            send_email(LOGGED_IN_USER_EMAIL, "⚠️ Electricity Theft Detected", body)
+            send_email(email, "⚠️ Electricity Theft Detected", body)
 
         return jsonify({"status": "success", "prediction": prediction_text})
     except Exception as e:
@@ -129,15 +128,16 @@ def receive_data():
 @app.route('/status', methods=['GET'])
 def get_status():
     """Updated status: Checks real ESP32 connection"""
+    email = request.args.get('email')
     is_connected = get_sensor_status()
     return jsonify({
         "esp_connected": is_connected,
-        "ai_running": (is_connected and detector.model is not None),
-        "logged_in_user": LOGGED_IN_USER_EMAIL
+        "ai_running": (is_connected and detector.model is not None)
     })
 
 @app.route('/history', methods=['GET'])
 def get_history():
+    email = request.args.get('email')
     if not os.path.exists(LIVE_DATA_FILE): return jsonify([])
     return jsonify(pd.read_csv(LIVE_DATA_FILE).tail(30).to_dict(orient='records'))
 
