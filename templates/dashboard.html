@@ -1,0 +1,85 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Smart Electricity Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header class="dashboard-header">
+        <div class="title-section">
+            <h2 style="color: var(--neon-green); text-shadow: 0 0 10px rgba(0,255,65,0.3);">SMART ELECTRICITY MONITOR</h2>
+            <div id="api-key-display" style="font-size: 0.75rem; color: #8b949e; margin-top: 4px;">API KEY: NOT GENERATED</div>
+        </div>
+        
+        <div class="status-info">
+            <div class="status-item">
+                <span id="sensor-dot" class="dot"></span>
+                <span>SENSOR: <span id="sensor-status">NOT CONNECTED</span></span>
+            </div>
+            <div class="status-item">
+                <span id="ai-dot" class="dot"></span>
+                <span>AI: <span id="ai-status">NOT RUNNING</span></span>
+            </div>
+            <button class="setup-btn" onclick="openModal()">SETUP</button>
+            <a href="/logout" style="color: #8b949e; text-decoration: none; font-size: 0.8rem; border-left: 1px solid #30363d; padding-left: 1rem; margin-left: 1rem;">LOGOUT</a>
+        </div>
+    </header>
+
+    <div id="toast-container"></div>
+
+    <main class="main-content">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">VOLTAGE (V)</div>
+                <div class="stat-value" id="val-voltage">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">CURRENT (A)</div>
+                <div class="stat-value" id="val-current">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">POWER (W)</div>
+                <div class="stat-value" id="val-power">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">ENERGY (kWh)</div>
+                <div class="stat-value" id="val-energy">0</div>
+            </div>
+        </div>
+
+        <div class="status-indicator-container">
+            <div id="indicator-circle" class="circle-status">NORMAL</div>
+            <p id="indicator-subtext" style="color: #8b949e; font-size: 0.8rem;">System Operating Correctly</p>
+        </div>
+
+        <div class="charts-section">
+            <div class="chart-container">
+                <canvas id="currentChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="powerChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="energyChart"></canvas>
+            </div>
+        </div>
+    </main>
+
+    <!-- Setup Modal -->
+    <div id="setupModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeModal()">&times;</span>
+            <h2 style="color: var(--neon-green); margin-bottom: 1rem;">SYSTEM SETUP</h2>
+            <p style="font-size: 0.9rem; margin-bottom: 1.5rem;">Generate your unique API Key to connect your hardware.</p>
+            <div id="api-key-box" class="api-key-box">**********</div>
+            <button class="login-btn" onclick="generateApiKey()">GENERATE API KEY</button>
+            <p style="margin-top: 1.5rem; font-size: 0.8rem; color: #8b949e;">Copy this API key and paste it in your ESP32 code to begin monitoring.</p>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

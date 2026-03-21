@@ -1,241 +1,76 @@
-from flask import Flask, request, jsonify, send_file
-from flask_cors import CORS
-import pandas as pd
-import os
-import datetime
-import time
-import smtplib
-from email.mime.text import MIMEText
+from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import random
-from model import TheftDetector
+import time
+import os
 
 app = Flask(__name__)
-# Enable CORS for frontend integration
-CORS(app)
+app.secret_key = 'smart_electricity_theft_secret'
 
-# --- CONFIGURATION ---
+# In-memory storage for latest sensor data
+latest_data = {
+    'voltage': 0,
+    'current': 0,
+    'power': 0,
+    'energy': 0,
+    'api_key': None,
+    'last_update': 0
+}
 
-EMAIL_USER = os.environ.get("EMAIL_USER")
-EMAIL_PASS = os.environ.get("EMAIL_PASS")
-print("EMAIL_USER:", EMAIL_USER)
-print("EMAIL_PASS exists:", EMAIL_PASS is not None)
-
-# Persistence: Stored in memory (could be file for true persistence across restarts)
-LAST_SEEN_TIME = 0 # Unix timestamp of last received sensor data
-
-# Temporary OTP Store {email: otp}
-OTP_STORE = {}
-
-# Initialize AI Detector
-detector = TheftDetector()
-
-def get_sensor_status():
-    """Returns True if data received in last 10 seconds"""
-    
-    if LAST_SEEN_TIME == 0:
-        return False
-
-    # check if last seen was within 10 seconds
-    return (time.time() - LAST_SEEN_TIME) < 10
-
-def send_email(to_email, subject, message):
-    try:
-        print("🚀 ENTERED send_email()")
-        print("TO:", to_email)
-
-        msg = MIMEText(message)
-        msg['Subject'] = subject
-        msg['From'] = EMAIL_USER
-        msg['To'] = to_email
-
-        print("🔌 CONNECTING SMTP...")
-        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
-
-        print("🔐 STARTTLS...")
-        server.starttls()
-
-        print("🔑 LOGGING IN...")
-        server.login(EMAIL_USER, EMAIL_PASS)
-
-        print("📨 SENDING MAIL...")
-        server.sendmail(EMAIL_USER, to_email, msg.as_string())
-
-        server.quit()
-
-        print("✅ EMAIL SENT SUCCESS")
-        return True, "success"
-
-    except Exception as e:
-        print("❌ EMAIL ERROR FULL:", str(e))
-        return False, str(e)
-
-@app.route("/")
+@app.route('/')
 def index():
-    return send_file("sms-alert-bot.html")
+    if 'user' in session:
+        return redirect(url_for('dashboard'))
+    return render_template('login.html')
 
+@app.route('/login', methods=['POST'])
+def login_api():
+    data = request.json
+    username = data.get('username')
+    password = data.get('password')
+    
+    if username == 'admin' and password == '1234':
+        session['user'] = 'admin'
+        return jsonify({'success': True})
+    return jsonify({'success': False, 'message': 'Invalid credentials'})
 
-@app.route("/dashboard")
+@app.route('/logout')
+def logout():
+    session.pop('user', None)
+    return redirect(url_for('index'))
+
+@app.route('/dashboard')
 def dashboard():
-    return send_file("dashboard.html")
+    if 'user' not in session:
+        return redirect(url_for('index'))
+    return render_template('dashboard.html')
 
-
-@app.route("/sensor-status", methods=['GET'])
-def sensor_status():
-    """New API: Returns connection state and last seen time"""
-    
-    email = request.args.get('email')
-    is_connected = get_sensor_status()
-
-    return jsonify({
-        "esp_connected": is_connected
-    })
-
-@app.route("/send-otp", methods=['POST'])
-def send_otp():
-    try:
-        print("🔥 SEND OTP API HIT")
-
-        data = request.get_json(force=True)
-        print("📦 RAW DATA:", data)
-
-        if not data:
-            return jsonify({"status": "error", "message": "No JSON received"}), 400
-
-        email = data.get('email')
-        print("📧 EMAIL:", email)
-
-        if not email:
-            return jsonify({"status": "error", "message": "Email required"}), 400
-
-        otp = str(random.randint(100000, 999999))
-        OTP_STORE[email] = otp
-
-        print(f"🔐 OTP GENERATED for {email}: {otp}")
-
-        print("📤 CALLING send_email()...")
-        success, err = send_email(email, "Verification Code", f"Your OTP is: {otp}")
-
-        print("📬 EMAIL RESULT:", success, err)
-
-        return jsonify({
-            "status": "success" if success else "error",
-            "message": "OTP Sent" if success else err
-        })
-
-    except Exception as e:
-        print("❌ SEND OTP CRASH:", str(e))
-        return jsonify({"status": "error", "message": str(e)}), 500
-    
-@app.route("/verify-otp", methods=['POST'])
-def verify_otp():
-    try:
-        data = request.get_json()
-        email = data.get('email')
-        otp = data.get('otp')
-
-        if OTP_STORE.get(email) == str(otp):
-            del OTP_STORE[email]
-            return jsonify({
-                "status": "success",
-                "verified": True,
-                "email": email
-            })
-
-        return jsonify({
-            "status": "error",
-            "message": "Invalid OTP"
-        }), 401
-
-    except Exception as e:
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
-    
 @app.route('/data', methods=['POST'])
 def receive_data():
-    """Receives ESP32 data and updates last_seen"""
+    global latest_data
+    data = request.json
+    # Expected: {api_key, voltage, current, power, energy}
+    if not data or 'api_key' not in data:
+        return jsonify({'status': 'error', 'message': 'Missing data or API key'}), 400
     
-    global LAST_SEEN_TIME
+    latest_data.update({
+        'voltage': data.get('voltage', 0),
+        'current': data.get('current', 0),
+        'power': data.get('power', 0),
+        'energy': data.get('energy', 0),
+        'api_key': data.get('api_key'),
+        'last_update': time.time()
+    })
+    return jsonify({'status': 'success'})
 
-    try:
-        data = request.get_json()
-        if not data:
-            return jsonify({"status": "error", "message": "No data"}), 400
-
-        # Update sensor heartbeat
-        LAST_SEEN_TIME = time.time()
-
-        current = float(data.get('current', 0))
-        power = float(data.get('power', 0))
-        energy = float(data.get('energy', 0))
-        email = data.get('email')
-
-        timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-
-        # AI Prediction
-        prediction_code = detector.predict(current, power, energy)
-        prediction_text = "THEFT" if prediction_code == 1 else "NORMAL"
-
-        # Save data
-        row = {
-            "timestamp": timestamp,
-            "current": current,
-            "power": power,
-            "energy": energy,
-            "prediction": prediction_text
-        }
-
-        pd.DataFrame([row]).to_csv(
-            LIVE_DATA_FILE,
-            mode='a',
-            header=not os.path.exists(LIVE_DATA_FILE),
-            index=False
-        )
-
-        # Send alert if theft
-        if prediction_code == 1 and email:
-            body = f"🚨 Theft Alert!\nCurrent: {current}\nPower: {power}\nTime: {timestamp}"
-            send_email(email, "⚠ Electricity Theft Detected", body)
-
-        return jsonify({
-            "status": "success",
-            "prediction": prediction_text
-        })
-
-    except Exception as e:
-        print("DATA ERROR:", str(e))
-        return jsonify({
-            "status": "error",
-            "message": str(e)
-        }), 500
-
-@app.route('/status', methods=['GET'])
-def get_status():
-    """Updated status: Checks real ESP32 connection"""
-    
-    email = request.args.get('email')
-    is_connected = get_sensor_status()
-
+@app.route('/api/latest')
+def get_latest():
+    # Return latest data and indicator if it's "real" (updated within last 5 seconds)
+    is_real = (time.time() - latest_data['last_update']) < 5
     return jsonify({
-        "esp_connected": is_connected,
-        "ai_running": (is_connected and detector.model is not None)
+        'data': latest_data,
+        'is_real': is_real
     })
 
-
-@app.route('/history', methods=['GET'])
-def get_history():
-    email = request.args.get('email')
-
-    if not os.path.exists(LIVE_DATA_FILE):
-        return jsonify([])
-
-    return jsonify(
-        pd.read_csv(LIVE_DATA_FILE)
-        .tail(30)
-        .to_dict(orient='records')
-    )
-
-
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
