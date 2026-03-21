@@ -395,7 +395,7 @@
   
   #otp-section { display: none; }
   .hidden { display: none !important; }
-  }
+  
   .btn-preview:hover { border-color: var(--accent); color: var(--accent); }
 
   /* alert log */
@@ -706,6 +706,7 @@
       <div class="field">
         <label>Enter Email Address</label>
         <input type="email" id="userEmail" placeholder="yourname@example.com">
+        <button onclick="sendOTP()">Send OTP</button>
       </div>
       <div class="config-btns">
         <button class="btn-send" onclick="sendOTP()">
@@ -908,29 +909,37 @@
   }
 
   async function sendOTP() {
-    const email = document.getElementById('userEmail').value;
-    if (!email) { alert("Please enter an email"); return; }
-    
-    document.getElementById('status-msg').innerText = "Sending OTP... ⏳";
-    try {
-      const res = await fetch(`${API_BASE}/send-otp`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email })
-      });
-      const data = await res.json();
-      if (data.status === "success") {
-        document.getElementById('email-section').style.display = 'none';
-        document.getElementById('otp-section').style.display = 'block';
-        document.getElementById('status-msg').innerText = "OTP sent to your email! ✅";
-      } else {
-        document.getElementById('status-msg').innerText = "Error: " + (data.message || "Failed to send");
-      }
-    } catch (err) {
-      document.getElementById('status-msg').innerText = "Server Error ❌";
-    }
-  }
+    const email = document.getElementById("userEmail").value;
 
+    if (!email) {
+        alert("Please enter an email");
+        return;
+    }
+
+    document.getElementById("status-msg").innerText = "Sending OTP... ⏳";
+
+    try {
+        const res = await fetch("/send-otp", {
+            method: "POST",
+            headers: {
+                "Content-Type": "application/json"
+            },
+            body: JSON.stringify({ email })
+        });
+
+        const data = await res.json();
+
+        if (data.status === "success") {
+            document.getElementById("status-msg").innerText = "OTP sent ✅";
+        } else {
+            document.getElementById("status-msg").innerText = "Error: " + data.message;
+        }
+
+    } catch (err) {
+        console.log(err);
+        document.getElementById("status-msg").innerText = "Server Error ❌";
+    }
+}
   async function verifyOTP() {
     const email = document.getElementById('userEmail').value;
     const otp = document.getElementById('userOTP').value;
