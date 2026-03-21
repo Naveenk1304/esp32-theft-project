@@ -40,21 +40,33 @@ def get_sensor_status():
 
 def send_email(to_email, subject, message):
     try:
+        print("🚀 ENTERED send_email()")
+        print("TO:", to_email)
+
         msg = MIMEText(message)
         msg['Subject'] = subject
         msg['From'] = EMAIL_USER
         msg['To'] = to_email
 
-        server = smtplib.SMTP('smtp.gmail.com', 587)
+        print("🔌 CONNECTING SMTP...")
+        server = smtplib.SMTP('smtp.gmail.com', 587, timeout=10)
+
+        print("🔐 STARTTLS...")
         server.starttls()
+
+        print("🔑 LOGGING IN...")
         server.login(EMAIL_USER, EMAIL_PASS)
+
+        print("📨 SENDING MAIL...")
         server.sendmail(EMAIL_USER, to_email, msg.as_string())
+
         server.quit()
 
+        print("✅ EMAIL SENT SUCCESS")
         return True, "success"
 
     except Exception as e:
-        print("FULL EMAIL ERROR:", str(e))
+        print("❌ EMAIL ERROR FULL:", str(e))
         return False, str(e)
 
 @app.route("/")
@@ -80,31 +92,40 @@ def sensor_status():
 
 @app.route("/send-otp", methods=['POST'])
 def send_otp():
-   try:
-    data = request.get_json()
-    email = data.get('email')
+    try:
+        print("🔥 SEND OTP API HIT")
 
-    print("Trying to send OTP to:", email)  # ✅ HERE
+        data = request.get_json(force=True)
+        print("📦 RAW DATA:", data)
 
-    if not email:
-        return jsonify({"status": "error", "message": "Email required"}), 400
+        if not data:
+            return jsonify({"status": "error", "message": "No JSON received"}), 400
 
-    otp = str(random.randint(100000, 999999))
-    OTP_STORE[email] = otp
+        email = data.get('email')
+        print("📧 EMAIL:", email)
 
-    print(f"OTP for {email}: {otp}")
+        if not email:
+            return jsonify({"status": "error", "message": "Email required"}), 400
 
-    success, err = send_email(email, "🔐 Verification Code", f"Your OTP is: {otp}")
+        otp = str(random.randint(100000, 999999))
+        OTP_STORE[email] = otp
 
-    return jsonify({
-        "status": "success" if success else "error",
-        "message": "OTP Sent" if success else err
-    })
+        print(f"🔐 OTP GENERATED for {email}: {otp}")
 
-   except Exception as e:
-    print("SEND OTP ERROR:", str(e))  # 🔥 add this also
-    return jsonify({"status": "error", "message": str(e)}), 500
+        print("📤 CALLING send_email()...")
+        success, err = send_email(email, "Verification Code", f"Your OTP is: {otp}")
 
+        print("📬 EMAIL RESULT:", success, err)
+
+        return jsonify({
+            "status": "success" if success else "error",
+            "message": "OTP Sent" if success else err
+        })
+
+    except Exception as e:
+        print("❌ SEND OTP CRASH:", str(e))
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
 @app.route("/verify-otp", methods=['POST'])
 def verify_otp():
     try:
