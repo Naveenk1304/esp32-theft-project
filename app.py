@@ -1,7 +1,14 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import random
 import time
+import pickle
 import os
+
+model = pickle.load(open("model.pkl", "rb"))
+
+def predict_theft(current, power):
+    result = model.predict([[current, power]])
+    return bool(result[0])
 
 app = Flask(__name__)
 app.secret_key = 'smart_electricity_theft_secret'
