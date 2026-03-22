@@ -99,8 +99,8 @@ def receive_data():
 def get_latest():
     global latest_data
 
-    # If no real data → simulate
-    if time.time() - latest_data['last_update'] > 5:
+    # ALWAYS generate demo data if no sensor
+    if latest_data['api_key'] is None:
         latest_data['voltage'] = random.uniform(220, 240)
         latest_data['current'] = random.uniform(1, 5)
         latest_data['power'] = random.uniform(200, 800)
