@@ -99,21 +99,20 @@ function processData(data) {
     document.getElementById('val-energy').innerText = data.energy;
 
     updateCharts(data);
-    checkTheft(data.power);
-}
 
-// THEFT LOGIC INTEGRATION
-if (data.theft) {
-    if (!alertShown) {
-        triggerAlert();
-        sendNotification();
-        showToast("⚠️ Electricity Theft Detected!");
-        alertShown = true;
-    }
-} else {
-    if (alertShown) {
-        resetAlert();
-        alertShown = false;
+    // ✅ MOVE HERE (IMPORTANT)
+    if (data.theft) {
+        if (!alertShown) {
+            triggerAlert();
+            sendNotification();
+            showToast("⚠️ Electricity Theft Detected!");
+            alertShown = true;
+        }
+    } else {
+        if (alertShown) {
+            resetAlert();
+            alertShown = false;
+        }
     }
 }
 
