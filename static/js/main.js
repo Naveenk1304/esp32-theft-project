@@ -196,7 +196,7 @@ function generateApiKey() {
         return;
     }
 
-    const newKey = 'SK-' + Math.random().toString(36).substr(2, 9).toUpperCase();
+    const newKey = 'NK-' + Math.random().toString(36).substr(2, 9).toUpperCase();
     apiKey = newKey;
     localStorage.setItem('electricity_api_key', newKey);
     document.getElementById('api-key-box').innerText = newKey;
