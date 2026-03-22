@@ -72,18 +72,9 @@ async function fetchLatestData() {
     try {
         const response = await fetch('/api/latest');
         const result = await response.json();
-        
-        if (result.is_real && result.data.api_key === apiKey) {
-            if (!isRealData) {
-                isRealData = true;
-                clearInterval(simulationInterval);
-                updateStatusUI(true);
-                resetCharts();
-            }
-            processData(result.data);
-        } else if (!isRealData && !simulationInterval) {
-            startSimulation();
-        }
+
+        processData(result);
+
     } catch (e) {
         console.error("Polling error:", e);
     }
