@@ -93,23 +93,24 @@ function startSimulation() {
 }
 
 function processData(data) {
-    document.getElementById('val-voltage').innerText = data.voltage;
-    document.getElementById('val-current').innerText = data.current;
-    document.getElementById('val-power').innerText = data.power;
-    document.getElementById('val-energy').innerText = data.energy;
+    document.getElementById('val-voltage').innerText = Number(data.voltage).toFixed(1);
+    document.getElementById('val-current').innerText = Number(data.current).toFixed(2);
+    document.getElementById('val-power').innerText = Number(data.power).toFixed(1);
+    document.getElementById('val-energy').innerText = Number(data.energy).toFixed(2);
 
     updateCharts(data);
 
     // ✅ MOVE HERE (IMPORTANT)
-    if (data.theft) {
+    if (data.theft && Date.now() - lastAlertTime > 10000) {
         if (!alertShown) {
             triggerAlert();
             sendNotification();
             showToast("⚠️ Electricity Theft Detected!");
             alertShown = true;
+            lastAlertTime = Date.now(); // 👈 UPDATE TIME
         }
     } else {
-        if (alertShown) {
+        if (alertShown && !data.theft) {
             resetAlert();
             alertShown = false;
         }
