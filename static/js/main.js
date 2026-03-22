@@ -6,9 +6,6 @@ let alertShown = false; // Control variable for single-trigger notifications
 let simulationInterval;
 let charts = {};
 
-// Threshold for theft detection (AI logic)
-const POWER_THRESHOLD = 500; // watts
-
 // Chart.js Configuration
 function createChart(id, label, color) {
     const ctx = document.getElementById(id).getContext('2d');
@@ -115,21 +112,17 @@ function processData(data) {
 }
 
 // THEFT LOGIC INTEGRATION
-function checkTheft(power) {
-    const isTheft = power > POWER_THRESHOLD;
-    
-    if (isTheft) {
-        if (!alertShown) {
-            triggerAlert();
-            sendNotification();
-            showToast("⚠️ Electricity Theft Detected! Abnormal power usage.");
-            alertShown = true;
-        }
-    } else {
-        if (alertShown) {
-            resetAlert();
-            alertShown = false;
-        }
+if (data.theft) {
+    if (!alertShown) {
+        triggerAlert();
+        sendNotification();
+        showToast("⚠️ Electricity Theft Detected!");
+        alertShown = true;
+    }
+} else {
+    if (alertShown) {
+        resetAlert();
+        alertShown = false;
     }
 }
 
