@@ -187,6 +187,15 @@ function openModal() { document.getElementById('setupModal').style.display = 'bl
 function closeModal() { document.getElementById('setupModal').style.display = 'none'; }
 
 function generateApiKey() {
+    const existingKey = localStorage.getItem('electricity_api_key');
+    
+    if (existingKey) {
+        alert("API key already generated");
+        document.getElementById('api-key-box').innerText = existingKey;
+        document.getElementById('api-key-display').innerText = "API KEY: " + existingKey;
+        return;
+    }
+
     const newKey = 'SK-' + Math.random().toString(36).substr(2, 9).toUpperCase();
     apiKey = newKey;
     localStorage.setItem('electricity_api_key', newKey);
