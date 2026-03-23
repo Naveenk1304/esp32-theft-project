@@ -74,10 +74,14 @@ async function fetchLatestData() {
         const response = await fetch('/api/latest');
         const result = await response.json();
 
+        // 🔥 ALWAYS mark as connected if data received
+        updateStatusUI(true);
+
         processData(result);
 
     } catch (e) {
         console.error("Polling error:", e);
+        updateStatusUI(false);
     }
 }
 
@@ -173,6 +177,11 @@ function updateStatusUI(connected) {
         sensorStatus.innerText = "CONNECTED";
         aiDot.classList.add('connected');
         aiStatus.innerText = "AI LISTENING...";
+    } else {
+        sensorDot.classList.remove('connected');
+        sensorStatus.innerText = "NOT CONNECTED";
+        aiDot.classList.remove('connected');
+        aiStatus.innerText = "AI: NOT RUNNING";
     }
 }
 
