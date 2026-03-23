@@ -3,6 +3,7 @@ let apiKey = localStorage.getItem('electricity_api_key');
 let isRealData = false;
 let theftDetected = false;
 let alertShown = false; // Control variable for single-trigger notifications
+let lastAlertTime = 0;
 let simulationInterval;
 let charts = {};
 

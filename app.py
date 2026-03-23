@@ -82,8 +82,8 @@ def receive_data():
         return jsonify({"status": "error", "message": "No data received"}), 400
 
     # API key check
-    if data.get("api_key") != generated_api_key:
-        return jsonify({"status": "error", "message": "Invalid API Key"}), 403
+   #if data.get("api_key") != generated_api_key:
+       #return jsonify({"status": "error", "message": "Invalid API Key"}), 403
 
     latest_data['voltage'] = data.get('voltage', 0)
     latest_data['current'] = data.get('current', 0)
