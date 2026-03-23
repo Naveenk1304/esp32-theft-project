@@ -74,8 +74,14 @@ async function fetchLatestData() {
         const response = await fetch('/api/latest');
         const result = await response.json();
 
-        // 🔥 ALWAYS mark as connected if data received
-        updateStatusUI(true);
+        const now = Date.now() / 1000;
+        const lastUpdate = result.last_update;
+
+        if (now - lastUpdate < 10) {
+            updateStatusUI(true);
+        } else {
+            updateStatusUI(false);
+        }
 
         processData(result);
 
