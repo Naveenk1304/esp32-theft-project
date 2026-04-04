@@ -1,15 +1,17 @@
 // State variables
 let apiKey = localStorage.getItem('electricity_api_key');
-let isRealData = false;
-let theftDetected = false;
-let alertShown = false; // Control variable for single-trigger notifications
-let lastAlertTime = 0;
-let simulationInterval;
+let last_update = 0;
+let currentStatus = "NORMAL"; // NORMAL or THEFT
+let lastStatusChangeTime = 0;
+let theftConfirmationStartTime = 0;
+let isConfirmingTheft = false;
 let charts = {};
 
 // Chart.js Configuration
 function createChart(id, label, color) {
-    const ctx = document.getElementById(id).getContext('2d');
+    const canvas = document.getElementById(id);
+    if (!canvas) return null;
+    const ctx = canvas.getContext('2d');
     return new Chart(ctx, {
         type: 'line',
         data: {
@@ -55,6 +57,7 @@ function updateCharts(data) {
     
     ['current', 'power', 'energy'].forEach(key => {
         const chart = charts[key];
+        if (!chart) return;
         chart.data.labels.push(timeLabel);
         chart.data.datasets[0].data.push(data[key]);
         
@@ -74,13 +77,9 @@ async function fetchLatestData() {
         const response = await fetch('/api/latest');
         const result = await response.json();
 
-        const now = Date.now() / 1000;
-        const lastUpdate = result.last_update;
-
-        if (now - lastUpdate < 10) {
-            updateStatusUI(true);
-        } else {
-            updateStatusUI(false);
+        // Update last_update from backend
+        if (result.last_update) {
+            last_update = result.last_update;
         }
 
         processData(result);
@@ -91,16 +90,15 @@ async function fetchLatestData() {
     }
 }
 
-function startSimulation() {
-    simulationInterval = setInterval(() => {
-        const demoData = {
-            voltage: (220 + Math.random() * 10).toFixed(1),
-            current: (1 + Math.random() * 2).toFixed(2),
-            power: (200 + Math.random() * 400).toFixed(1),
-            energy: (10 + Math.random() * 5).toFixed(3)
-        };
-        processData(demoData);
-    }, 2000);
+// Connectivity Check Logic
+function checkConnectivity() {
+    const now = Date.now();
+    // If last_update is within 5 seconds (5000ms)
+    if (last_update > 0 && (now - last_update) < 5000) {
+        updateStatusUI(true);
+    } else {
+        updateStatusUI(false);
+    }
 }
 
 function processData(data) {
@@ -111,19 +109,34 @@ function processData(data) {
 
     updateCharts(data);
 
-    // ✅ MOVE HERE (IMPORTANT)
-    if (data.theft && Date.now() - lastAlertTime > 10000) {
-        if (!alertShown) {
-            triggerAlert();
-            sendNotification();
-            showToast("⚠️ Electricity Theft Detected!");
-            alertShown = true;
-            lastAlertTime = Date.now(); // 👈 UPDATE TIME
+    // THEFT DEBOUNCE LOGIC
+    const now = Date.now();
+    
+    if (data.theft) {
+        if (currentStatus === "NORMAL") {
+            if (!isConfirmingTheft) {
+                isConfirmingTheft = true;
+                theftConfirmationStartTime = now;
+            } else if (now - theftConfirmationStartTime >= 6000) { // 6 seconds confirmation
+                currentStatus = "THEFT";
+                lastStatusChangeTime = now;
+                isConfirmingTheft = false;
+                triggerAlert();
+                sendNotification();
+                showToast("⚠️ Electricity Theft Detected!");
+            }
+        } else {
+            isConfirmingTheft = false;
         }
     } else {
-        if (alertShown && !data.theft) {
-            resetAlert();
-            alertShown = false;
+        isConfirmingTheft = false;
+        if (currentStatus === "THEFT") {
+            // Hold THEFT for at least 7 seconds before switching back
+            if (now - lastStatusChangeTime >= 7000) {
+                currentStatus = "NORMAL";
+                lastStatusChangeTime = now;
+                resetAlert();
+            }
         }
     }
 }
@@ -139,6 +152,7 @@ function sendNotification() {
 
 function showToast(message) {
     const container = document.getElementById('toast-container');
+    if (!container) return;
     const toast = document.createElement('div');
     toast.className = 'toast';
     toast.innerHTML = `<span>🚨</span> <span>${message}</span>`;
@@ -151,25 +165,31 @@ function showToast(message) {
 }
 
 function triggerAlert() {
-    theftDetected = true;
     const indicator = document.getElementById('indicator-circle');
     const subtext = document.getElementById('indicator-subtext');
     
-    indicator.classList.add('theft');
-    indicator.innerText = "⚠️ THEFT DETECTED";
-    subtext.innerText = "CRITICAL: ABNORMAL POWER CONSUMPTION";
-    subtext.style.color = "#ff3131";
+    if (indicator) {
+        indicator.classList.add('theft');
+        indicator.innerText = "⚠️ THEFT DETECTED";
+    }
+    if (subtext) {
+        subtext.innerText = "CRITICAL: ABNORMAL POWER CONSUMPTION";
+        subtext.style.color = "#ff3131";
+    }
 }
 
 function resetAlert() {
-    theftDetected = false;
     const indicator = document.getElementById('indicator-circle');
     const subtext = document.getElementById('indicator-subtext');
     
-    indicator.classList.remove('theft');
-    indicator.innerText = "NORMAL";
-    subtext.innerText = "System Operating Correctly";
-    subtext.style.color = "#8b949e";
+    if (indicator) {
+        indicator.classList.remove('theft');
+        indicator.innerText = "NORMAL";
+    }
+    if (subtext) {
+        subtext.innerText = "System Operating Correctly";
+        subtext.style.color = "#8b949e";
+    }
 }
 
 function updateStatusUI(connected) {
@@ -179,50 +199,36 @@ function updateStatusUI(connected) {
     const aiStatus = document.getElementById('ai-status');
 
     if (connected) {
-        sensorDot.classList.add('connected');
-        sensorStatus.innerText = "CONNECTED";
-        aiDot.classList.add('connected');
-        aiStatus.innerText = "AI LISTENING...";
+        if (sensorDot) sensorDot.classList.add('connected');
+        if (sensorStatus) sensorStatus.innerText = "CONNECTED";
+        if (aiDot) aiDot.classList.add('connected');
+        if (aiStatus) aiStatus.innerText = "AI LISTENING...";
     } else {
-        sensorDot.classList.remove('connected');
-        sensorStatus.innerText = "NOT CONNECTED";
-        aiDot.classList.remove('connected');
-        aiStatus.innerText = "AI: NOT RUNNING";
+        if (sensorDot) sensorDot.classList.remove('connected');
+        if (sensorStatus) sensorStatus.innerText = "NOT CONNECTED";
+        if (aiDot) aiDot.classList.remove('connected');
+        if (aiStatus) aiStatus.innerText = "AI: NOT RUNNING";
     }
 }
 
-function resetCharts() {
-    ['current', 'power', 'energy'].forEach(key => {
-        charts[key].data.labels = [];
-        charts[key].data.datasets[0].data = [];
-        charts[key].update();
-    });
+function generateApiKey() {
+    fetch('/generate-key')
+        .then(res => res.json())
+        .then(data => {
+            apiKey = data.api_key;
+            localStorage.setItem('electricity_api_key', apiKey);
+            document.getElementById('api-key-box').innerText = apiKey;
+            document.getElementById('api-key-display').innerText = "API KEY: " + apiKey;
+        })
+        .catch(err => console.error("Key generation failed:", err));
 }
 
 function openModal() { document.getElementById('setupModal').style.display = 'block'; }
 function closeModal() { document.getElementById('setupModal').style.display = 'none'; }
 
-function generateApiKey() {
-    const existingKey = localStorage.getItem('electricity_api_key');
-    
-    if (existingKey) {
-        alert("API key already generated");
-        document.getElementById('api-key-box').innerText = existingKey;
-        document.getElementById('api-key-display').innerText = "API KEY: " + existingKey;
-        return;
-    }
-
-    const newKey = 'NK-' + Math.random().toString(36).substr(2, 9).toUpperCase();
-    apiKey = newKey;
-    localStorage.setItem('electricity_api_key', newKey);
-    document.getElementById('api-key-box').innerText = newKey;
-    document.getElementById('api-key-display').innerText = "API KEY: " + newKey;
-}
-
 // Initialize
 window.onload = () => {
-    // REQUEST PERMISSION
-    if (Notification.permission !== "granted") {
+    if (Notification.permission !== "granted" && Notification.permission !== "denied") {
         Notification.requestPermission();
     }
 
@@ -232,8 +238,11 @@ window.onload = () => {
         document.getElementById('api-key-box').innerText = apiKey;
     }
     
+    // Polling data every 2 seconds
     setInterval(fetchLatestData, 2000);
-    startSimulation();
+    
+    // Connectivity check every 1 second
+    setInterval(checkConnectivity, 1000);
 };
 
 window.onclick = (event) => {

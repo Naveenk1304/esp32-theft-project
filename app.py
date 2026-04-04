@@ -116,6 +116,7 @@ def get_latest():
         "power": latest_data['power'],
         "energy": latest_data['energy'],
         "theft": latest_data['theft'],
+        "last_update": latest_data['last_update'],
         "is_real": latest_data['api_key'] is not None
     })
 
