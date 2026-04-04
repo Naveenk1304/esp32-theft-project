@@ -90,7 +90,7 @@ def receive_data():
     latest_data['power'] = data.get('power', 0)
     latest_data['energy'] = data.get('energy', 0)
     latest_data['api_key'] = data.get('api_key')
-    latest_data['last_update'] = time.time()
+    latest_data['last_update'] = int(time.time() * 1000)
 
     return jsonify({"status": "success"})
 
