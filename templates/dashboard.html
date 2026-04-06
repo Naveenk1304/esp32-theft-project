@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard - Smart Electricity Monitor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+    <header class="dashboard-header">
+        <div class="title-section">
+            <h2 style="color: var(--neon-green); text-shadow: 0 0 10px rgba(0,255,65,0.3);">SMART ELECTRICITY MONITOR</h2>
+            <div id="api-key-display" style="font-size: 0.75rem; color: #8b949e; margin-top: 4px;">API KEY: NOT GENERATED</div>
+        </div>
+        
+        <div class="status-info">
+            <div class="status-item">
+                <span id="sensor-dot" class="dot"></span>
+                <span>SENSOR: <span id="sensor-status">NOT CONNECTED</span></span>
+            </div>
+            <div class="status-item">
+                <span id="ai-dot" class="dot"></span>
+                <span>AI: <span id="ai-status">NOT RUNNING</span></span>
+            </div>
+            <div id="action-buttons">
+                <button class="setup-btn" id="setup-btn" onclick="openModal()">SETUP</button>
+                <button class="setup-btn" id="learn-btn" style="display:none; background: #2ea043;" onclick="startLearning()">LEARN PATTERN</button>
+                <button class="setup-btn" id="reset-btn" style="display:none; background: #da3633;" onclick="resetPattern()">RESET PATTERN</button>
+            </div>
+            <a href="/logout" style="color: #8b949e; text-decoration: none; font-size: 0.8rem; border-left: 1px solid #30363d; padding-left: 1rem; margin-left: 1rem;">LOGOUT</a>
+        </div>
+    </header>
+
+    <div id="toast-container"></div>
+
+    <main class="main-content">
+        <div class="stats-grid">
+            <div class="stat-card">
+                <div class="stat-label">VOLTAGE (V)</div>
+                <div class="stat-value" id="val-voltage">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">CURRENT (A)</div>
+                <div class="stat-value" id="val-current">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">POWER (W)</div>
+                <div class="stat-value" id="val-power">0</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-label">ENERGY (kWh)</div>
+                <div class="stat-value" id="val-energy">0</div>
+            </div>
+        </div>
+
+        <div class="status-indicator-container">
+            <div id="learning-container" style="display:none; width: 100%; max-width: 600px; margin: 10px auto;">
+                <p id="learning-msg" style="color: var(--neon-green); margin-bottom: 5px;">Learning mode active: Collecting readings...</p>
+                <div class="progress-bar-bg" style="background: #30363d; height: 10px; border-radius: 5px; overflow: hidden;">
+                    <div id="learning-progress" style="width: 0%; height: 100%; background: var(--neon-green); transition: width 0.3s ease;"></div>
+                </div>
+            </div>
+            <div id="indicator-circle" class="circle-status">DEMO MODE</div>
+            <p id="indicator-subtext" style="color: #8b949e; font-size: 0.8rem;">Setup API Key to enable real monitoring</p>
+        </div>
+
+        <div class="theft-table-section" id="theft-table-container" style="display:none; margin-top: 2rem;">
+            <h3 style="color: #ff3131; margin-bottom: 1rem;">🚨 THEFT LOGS</h3>
+            <div style="overflow-x: auto;">
+                <table id="theft-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">
+                    <thead>
+                        <tr style="border-bottom: 1px solid #30363d; color: #8b949e;">
+                            <th style="padding: 10px; text-align: left;">Timestamp</th>
+                            <th style="padding: 10px; text-align: left;">Learned Current (A)</th>
+                            <th style="padding: 10px; text-align: left;">Current Now (A)</th>
+                            <th style="padding: 10px; text-align: left;">Difference</th>
+                        </tr>
+                    </thead>
+                    <tbody id="theft-logs-body">
+                        <!-- Logs will appear here -->
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="charts-section">
+            <div class="chart-container">
+                <canvas id="currentChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="powerChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="energyChart"></canvas>
+            </div>
+        </div>
+    </main>
+
+    <!-- Setup Modal -->
+    <div id="setupModal" class="modal">
+        <div class="modal-content">
+            <span class="close-modal" onclick="closeModal()">&times;</span>
+            <h2 style="color: var(--neon-green); margin-bottom: 1rem;">SYSTEM SETUP</h2>
+            <p style="font-size: 0.9rem; margin-bottom: 1.5rem;">Generate your unique API Key to connect your hardware.</p>
+            <div id="api-key-box" class="api-key-box">**********</div>
+            <button class="login-btn" onclick="generateApiKey()">GENERATE API KEY</button>
+            <p style="margin-top: 1.5rem; font-size: 0.8rem; color: #8b949e;">Copy this API key and paste it in your ESP32 code to begin monitoring.</p>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
