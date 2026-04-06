@@ -67,7 +67,7 @@ def generate_key():
     global generated_api_key
 
     if not generated_api_key:
-        generated_api_key = "KEY_" + str(random.randint(100000, 999999))
+        generated_api_key = "NK" + str(random.randint(100000, 999999))
 
     return jsonify({"api_key": generated_api_key})
 
