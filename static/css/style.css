@@ -227,6 +227,12 @@ body {
     animation: blink 1s infinite;
 }
 
+.circle-status.learning-blink {
+    border-color: var(--neon-green);
+    color: var(--neon-green);
+    animation: blink 2s infinite;
+}
+
 @keyframes blink {
     0% { opacity: 1; }
     50% { opacity: 0.3; }
