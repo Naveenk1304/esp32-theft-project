@@ -64,12 +64,8 @@ def dashboard():
 # ---------------- API KEY ----------------
 @app.route('/generate-key')
 def generate_key():
-    global generated_api_key
-
-    if not generated_api_key:
-        generated_api_key = "NK" + str(random.randint(100000, 999999))
-
-    return jsonify({"api_key": generated_api_key})
+    key = "NK" + str(random.randint(100000, 999999))
+    return jsonify({"api_key": key})
 
 @app.route('/api/validate-key', methods=['POST'])
 def validate_key():

@@ -284,6 +284,9 @@ body {
     font-family: monospace;
     color: var(--neon-green);
     word-break: break-all;
+    box-shadow: 0 0 10px rgba(0, 255, 65, 0.2);
+    text-shadow: 0 0 5px rgba(0, 255, 65, 0.5);
+    border-radius: 4px;
 }
 
 .close-modal {

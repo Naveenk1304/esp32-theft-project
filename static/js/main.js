@@ -1,4 +1,4 @@
-// ================= STATE =================
+// State variables
 let apiKey = localStorage.getItem('electricity_api_key');
 let last_update = 0;
 let mode = "demo"; // demo | real | learning | monitoring
@@ -6,231 +6,341 @@ let learned_current = null;
 let learning_readings = [];
 let charts = {};
 
-// ================= CHART =================
+// Chart.js Configuration
 function createChart(id, label, color) {
-    const ctx = document.getElementById(id)?.getContext('2d');
-    if (!ctx) return null;
-
+    const canvas = document.getElementById(id);
+    if (!canvas) return null;
+    const ctx = canvas.getContext('2d');
     return new Chart(ctx, {
         type: 'line',
         data: {
             labels: [],
             datasets: [{
-                label,
+                label: label,
                 data: [],
                 borderColor: color,
-                backgroundColor: color + "22",
-                tension: 0.4,
+                backgroundColor: color + '22',
+                borderWidth: 2,
+                pointRadius: 0,
                 fill: true,
-                pointRadius: 0
+                tension: 0.4
             }]
         },
         options: {
             responsive: true,
-            plugins: {
-                legend: { labels: { color: "#8b949e" } }
-            },
+            maintainAspectRatio: false,
             scales: {
                 x: { display: false },
-                y: {
-                    ticks: { color: "#8b949e" },
-                    grid: { color: "rgba(255,255,255,0.05)" }
+                y: { 
+                    beginAtZero: true,
+                    grid: { color: 'rgba(255, 255, 255, 0.05)' },
+                    ticks: { color: '#8b949e' }
                 }
+            },
+            plugins: {
+                legend: { display: true, labels: { color: '#8b949e' } }
             }
         }
     });
 }
 
+// Initializing Charts
 function initCharts() {
-    charts.current = createChart("currentChart", "Current (A)", "#00ff41");
-    charts.power = createChart("powerChart", "Power (W)", "#00ff41");
-    charts.energy = createChart("energyChart", "Energy (kWh)", "#00ff41");
+    charts.current = createChart('currentChart', 'Current (A)', '#00ff41');
+    charts.power = createChart('powerChart', 'Power (W)', '#00ff41');
+    charts.energy = createChart('energyChart', 'Energy (kWh)', '#00ff41');
 }
 
 function updateCharts(data) {
-    const time = new Date().toLocaleTimeString();
-
-    ["current", "power", "energy"].forEach(key => {
+    const timeLabel = new Date().toLocaleTimeString();
+    
+    ['current', 'power', 'energy'].forEach(key => {
         const chart = charts[key];
         if (!chart) return;
-
-        chart.data.labels.push(time);
+        chart.data.labels.push(timeLabel);
         chart.data.datasets[0].data.push(data[key]);
-
+        
+        // Keep only last 20 points
         if (chart.data.labels.length > 20) {
             chart.data.labels.shift();
             chart.data.datasets[0].data.shift();
         }
-
-        chart.update("none");
+        
+        chart.update('none');
     });
 }
 
-// ================= DATA =================
+// Data Handling
 async function fetchLatestData() {
     try {
-        const res = await fetch('/api/latest');
-        let data = await res.json();
+        const response = await fetch('/api/latest');
+        const result = await response.json();
 
-        if (data.last_update) last_update = data.last_update;
-
-        // DEMO fallback
-        if (!data || data.current === 0) {
-            data = {
-                voltage: 230 + Math.random()*10,
-                current: 0.08 + Math.random()*0.02,
-                power: 20 + Math.random()*5,
-                energy: 10 + Math.random()*5
-            };
+        // Update last_update from backend
+        if (result.last_update) {
+            last_update = result.last_update;
         }
 
-        processData(data);
+        processData(result);
 
-    } catch (err) {
-        console.error("Fetch error:", err);
+    } catch (e) {
+        console.error("Polling error:", e);
     }
 }
 
-// ================= CONNECTIVITY =================
+// Connectivity Check Logic
 function checkConnectivity() {
     const now = Date.now();
-    const connected = (last_update > 0 && (now - last_update) < 5000);
-
-    if (connected) {
-        if (mode === "demo") mode = "real";
-        updateStatusUI(true);
-    } else {
-        mode = "demo";
-        updateStatusUI(false);
+    const isConnected = last_update > 0 && (now - last_update) < 5000;
+    
+    // Update Mode if not in learning or monitoring
+    if (mode === "demo" || mode === "real") {
+        mode = isConnected ? "real" : "demo";
     }
-
+    
+    updateStatusUI(isConnected);
     updateModeUI();
 }
 
-// ================= UI =================
 function updateStatusUI(connected) {
-    const sensor = document.getElementById("sensor-status");
-    const ai = document.getElementById("ai-status");
+    const sensorDot = document.getElementById('sensor-dot');
+    const sensorStatus = document.getElementById('sensor-status');
+    const aiDot = document.getElementById('ai-dot');
+    const aiStatus = document.getElementById('ai-status');
 
     if (connected) {
-        if (sensor) sensor.innerText = "CONNECTED";
-        if (ai) ai.innerText = "AI READY";
+        if (sensorDot) sensorDot.classList.add('connected');
+        if (sensorStatus) sensorStatus.innerText = "CONNECTED";
+        if (aiDot) aiDot.classList.add('connected');
+        if (aiStatus) aiStatus.innerText = (mode === "monitoring") ? "MONITORING ACTIVE" : (mode === "learning" ? "LEARNING..." : "AI READY");
     } else {
-        if (sensor) sensor.innerText = "NOT CONNECTED";
-        if (ai) ai.innerText = "AI NOT RUNNING";
+        if (sensorDot) sensorDot.classList.remove('connected');
+        if (sensorStatus) sensorStatus.innerText = "NOT CONNECTED";
+        if (aiDot) aiDot.classList.remove('connected');
+        if (aiStatus) aiStatus.innerText = "AI: NOT RUNNING";
     }
 }
 
 function updateModeUI() {
-    const indicator = document.getElementById("indicator-circle");
-    const sub = document.getElementById("indicator-subtext");
+    const indicator = document.getElementById('indicator-circle');
+    const subtext = document.getElementById('indicator-subtext');
+    const setupBtn = document.getElementById('setupBtn');
+    const learnBtn = document.getElementById('learnBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const learningContainer = document.getElementById('learning-container');
 
-    const setup = document.getElementById("setupBtn");
-    const learn = document.getElementById("learnBtn");
-    const reset = document.getElementById("resetBtn");
-
-    if (!indicator) return;
-
-    // hide all
-    setup && (setup.style.display = "none");
-    learn && (learn.style.display = "none");
-    reset && (reset.style.display = "none");
-
-    indicator.classList.remove("theft");
+    // Default: Hide all buttons and containers
+    setupBtn.style.display = "none";
+    learnBtn.style.display = "none";
+    resetBtn.style.display = "none";
+    learningContainer.style.display = "none";
+    
+    // Default text color and animation
+    indicator.classList.remove('theft', 'learning-blink');
 
     if (mode === "demo") {
         indicator.innerText = "DEMO MODE";
-        sub.innerText = "Setup API Key to enable real monitoring";
-        setup && (setup.style.display = "block");
-    }
+        subtext.innerText = "Setup API Key to enable real monitoring";
+        subtext.style.color = "#8b949e";
+        setupBtn.style.display = "block";
+    } 
     else if (mode === "real") {
         indicator.innerText = "READY";
-        sub.innerText = "Click Learn Pattern to start AI";
-        learn && (learn.style.display = "block");
-    }
+        subtext.innerText = "Click Learn Pattern to start AI";
+        subtext.style.color = "#8b949e";
+        learnBtn.style.display = "block";
+    } 
     else if (mode === "learning") {
         indicator.innerText = "LEARNING...";
-        sub.innerText = "Collecting data...";
-    }
+        indicator.classList.add('learning-blink');
+        subtext.innerText = "Collecting baseline data...";
+        subtext.style.color = "var(--neon-green)";
+        learningContainer.style.display = "block";
+        // Buttons stay hidden in learning
+    } 
     else if (mode === "monitoring") {
-        indicator.innerText = "MONITORING";
-        sub.innerText = "System Normal";
-        reset && (reset.style.display = "block");
+        // If theft is detected, processData will handle the UI
+        // This is the default monitoring state
+        if (!indicator.classList.contains('theft')) {
+            indicator.innerText = "MONITORING";
+            subtext.innerText = "System Operating Correctly";
+            subtext.style.color = "#8b949e";
+        }
+        resetBtn.style.display = "block";
     }
 }
 
-// ================= DATA PROCESS =================
 function processData(data) {
-    document.getElementById("val-voltage").innerText = data.voltage.toFixed(1);
-    document.getElementById("val-current").innerText = data.current.toFixed(2);
-    document.getElementById("val-power").innerText = data.power.toFixed(1);
-    document.getElementById("val-energy").innerText = data.energy.toFixed(2);
+    document.getElementById('val-voltage').innerText = Number(data.voltage).toFixed(1);
+    document.getElementById('val-current').innerText = Number(data.current).toFixed(2);
+    document.getElementById('val-power').innerText = Number(data.power).toFixed(1);
+    document.getElementById('val-energy').innerText = Number(data.energy).toFixed(2);
 
     updateCharts(data);
 
     if (mode === "learning") {
-        learning_readings.push(data.current);
-
+        learning_readings.push(Number(data.current));
+        const progress = (learning_readings.length / 50) * 100;
+        document.getElementById('learning-progress').style.width = progress + "%";
+        
         if (learning_readings.length >= 50) {
-            learned_current = learning_readings.reduce((a,b)=>a+b,0)/50;
+            const sum = learning_readings.reduce((a, b) => a + b, 0);
+            learned_current = sum / learning_readings.length;
             mode = "monitoring";
-            alert("Learning Completed!");
+            learning_readings = [];
+            showToast("Learning Complete! Baseline established.");
+            updateModeUI();
         }
-    }
-
-    if (mode === "monitoring" && learned_current) {
-        if (data.current > learned_current + 0.02) {
-            triggerTheft();
+    } 
+    else if (mode === "monitoring") {
+        const currentNow = Number(data.current);
+        if (currentNow > learned_current + 0.02) {
+            triggerAlert(learned_current, currentNow);
         } else {
             resetAlert();
         }
     }
 }
 
-// ================= ALERT =================
-function triggerTheft() {
-    const indicator = document.getElementById("indicator-circle");
-    indicator.classList.add("theft");
-    indicator.innerText = "⚠️ THEFT";
+function triggerAlert(learned, current) {
+    const indicator = document.getElementById('indicator-circle');
+    const subtext = document.getElementById('indicator-subtext');
+    
+    indicator.classList.add('theft');
+    indicator.innerText = "THEFT DETECTED";
+    subtext.innerText = "CRITICAL: ABNORMAL POWER CONSUMPTION";
+    subtext.style.color = "#ff3131";
+    
+    // Add to theft logs if not already showing
+    document.getElementById('theft-table-container').style.display = "block";
+    const tbody = document.getElementById('theft-logs-body');
+    
+    // Only add if last log was more than 10 seconds ago to avoid spam
+    const lastRow = tbody.firstElementChild;
+    const now = new Date();
+    if (!lastRow || (now - new Date(lastRow.dataset.time) > 10000)) {
+        const row = document.createElement('tr');
+        row.dataset.time = now.toISOString();
+        row.style.borderBottom = "1px solid #30363d";
+        row.innerHTML = `
+            <td style="padding: 10px;">${now.toLocaleTimeString()}</td>
+            <td style="padding: 10px;">${learned.toFixed(2)}</td>
+            <td style="padding: 10px; color: #ff3131;">${current.toFixed(2)}</td>
+            <td style="padding: 10px; color: #ff3131;">+${(current - learned).toFixed(2)}</td>
+        `;
+        tbody.prepend(row);
+        showToast("⚠️ Electricity Theft Detected!");
+        sendNotification();
+    }
 }
 
 function resetAlert() {
-    const indicator = document.getElementById("indicator-circle");
-    indicator.classList.remove("theft");
+    const indicator = document.getElementById('indicator-circle');
+    const subtext = document.getElementById('indicator-subtext');
+    
+    if (indicator.classList.contains('theft')) {
+        indicator.classList.remove('theft');
+        indicator.innerText = "MONITORING";
+        subtext.innerText = "System Operating Correctly";
+        subtext.style.color = "#8b949e";
+    }
 }
 
-// ================= ACTIONS =================
 function startLearning() {
-    mode = "learning";
-    learning_readings = [];
+    if (mode === "real") {
+        mode = "learning";
+        learning_readings = [];
+        document.getElementById('learning-progress').style.width = "0%";
+        updateModeUI();
+    }
 }
 
 function resetPattern() {
-    mode = "real";
     learned_current = null;
-}
-
-// ================= MODAL =================
-function openModal() {
-    document.getElementById("setupModal").style.display = "block";
-}
-function closeModal() {
-    document.getElementById("setupModal").style.display = "none";
-}
-
-// ================= INIT =================
-window.onload = () => {
-    initCharts();
+    learning_readings = [];
+    mode = (last_update > 0 && (Date.now() - last_update) < 5000) ? "real" : "demo";
+    document.getElementById('theft-table-container').style.display = "none";
+    document.getElementById('theft-logs-body').innerHTML = "";
+    resetAlert();
     updateModeUI();
+}
 
-    const setup = document.getElementById("setupBtn");
-    const learn = document.getElementById("learnBtn");
-    const reset = document.getElementById("resetBtn");
+function generateApiKey() {
+    fetch('/generate-key')
+        .then(res => res.json())
+        .then(data => {
+            if (!data.api_key) {
+                alert("Failed to generate API key");
+                return;
+            }
+            apiKey = data.api_key;
+            localStorage.setItem('electricity_api_key', apiKey);
+            const box = document.getElementById('api-key-box');
+            const display = document.getElementById('api-key-display');
+            if (box) box.innerText = apiKey;
+            if (display) display.innerText = "API KEY: " + apiKey;
+            alert("API Key Generated Successfully!");
+            closeModal();
+        })
+        .catch(err => {
+            console.error("Key generation failed:", err);
+            alert("Server error while generating API key");
+        });
+}
 
-    setup && setup.addEventListener("click", openModal);
-    learn && learn.addEventListener("click", startLearning);
-    reset && reset.addEventListener("click", resetPattern);
+function openModal() { document.getElementById('setupModal').style.display = 'block'; }
+function closeModal() { document.getElementById('setupModal').style.display = 'none'; }
 
+function sendNotification() {
+    if (Notification.permission === "granted") {
+        new Notification("⚠️ Electricity Theft Detected!", {
+            body: "Abnormal power usage detected in your system",
+            icon: "https://cdn-icons-png.flaticon.com/512/565/565547.png"
+        });
+    }
+}
+
+function showToast(message) {
+    const container = document.getElementById('toast-container');
+    if (!container) return;
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.innerHTML = `<span>🚨</span> <span>${message}</span>`;
+    container.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.classList.add('fade-out');
+        setTimeout(() => toast.remove(), 500);
+    }, 5000);
+}
+
+// Initialize
+window.onload = () => {
+    if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+        Notification.requestPermission();
+    }
+
+    initCharts();
+    if (apiKey) {
+        const display = document.getElementById('api-key-display');
+        const box = document.getElementById('api-key-box');
+        if (display) display.innerText = "API KEY: " + apiKey;
+        if (box) box.innerText = apiKey;
+    }
+    
+    const genBtn = document.getElementById("generateKeyBtn");
+    if (genBtn) {
+        genBtn.addEventListener("click", generateApiKey);
+    }
+    
+    // Polling data every 2 seconds
     setInterval(fetchLatestData, 2000);
+    
+    // Connectivity check every 1 second
     setInterval(checkConnectivity, 1000);
+};
+
+window.onclick = (event) => {
+    const modal = document.getElementById('setupModal');
+    if (event.target == modal) closeModal();
 };
