@@ -200,23 +200,20 @@ def send_logs_email(email, logs):
 # ---------------- EMAIL ROUTES ----------------
 @app.route('/send-otp', methods=['POST'])
 def send_otp():
-    try:
-        data = request.get_json(silent=True)
-        if not data or "email" not in data:
-            return jsonify({"success": False, "message": "Invalid request"}), 400
-        email = data["email"]
-        
-        otp = str(random.randint(100000, 999999))
-        temp_otps[email] = otp
-        
-        success = send_otp_email(email, otp)
-        if success:
-            return jsonify({"success": True, "message": "OTP sent"})
-        else:
-            return jsonify({"success": False, "message": "Email failed"}), 500
-    except Exception as e:
-        print("FULL ERROR:", str(e))
-        return jsonify({"success": False, "message": str(e)}), 500
+    data = request.get_json()
+    email = data.get('email')
+
+    if not email:
+        return jsonify({"success": False, "message": "Email required"}), 400
+
+    otp = random.randint(100000, 999999)
+
+    success = send_otp_email(email, otp)
+
+    if success:
+        return jsonify({"success": True})
+    else:
+        return jsonify({"success": False, "message": "Email failed"}), 500
 
 @app.route('/verify-otp', methods=['POST'])
 def verify_otp_api():

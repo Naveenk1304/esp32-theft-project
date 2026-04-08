@@ -343,30 +343,29 @@ function updateEmailUI() {
 
 async function sendOTP() {
     const email = document.getElementById('setupEmailInput').value;
+
     if (!email) {
         alert("Please enter a valid email");
         return;
     }
-    
-    const res = await fetch('/send-otp', {
+
+    const res = await fetch(window.location.origin + '/send-otp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email })
     });
-    
-    let data;
-    try {
-        data = await res.json();
-    } catch (e) {
-        alert("Server error. Please try again.");
+
+    if (!res.ok) {
+        const text = await res.text();
+        console.error("Server error:", text);
+        alert("Server error while sending OTP");
         return;
     }
-    
+
+    const data = await res.json();
+
     if (data.success) {
         alert("OTP sent successfully");
-        document.getElementById('email-step-1').style.display = 'none';
-        document.getElementById('email-step-2').style.display = 'block';
-        showToast("OTP sent to your email!");
     } else {
         alert(data.message);
     }
