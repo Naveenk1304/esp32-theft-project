@@ -1,10 +1,13 @@
 // State variables
 let apiKey = localStorage.getItem('electricity_api_key');
+let currentEmail = localStorage.getItem('electricity_email');
 let last_update = 0;
 let mode = "demo"; // demo | real | learning | monitoring
 let learned_current = null;
 let learning_readings = [];
 let charts = {};
+let theftLogs = [];
+let theftTimer = null;
 
 // Chart.js Configuration
 function createChart(id, label, color) {
@@ -210,6 +213,12 @@ function triggerAlert(learned, current) {
     indicator.innerText = "THEFT DETECTED";
     subtext.innerText = "CRITICAL: ABNORMAL POWER CONSUMPTION";
     subtext.style.color = "#ff3131";
+
+    // Clear auto-email timer if theft resumes
+    if (theftTimer) {
+        clearTimeout(theftTimer);
+        theftTimer = null;
+    }
     
     // Add to theft logs if not already showing
     document.getElementById('theft-table-container').style.display = "block";
@@ -229,6 +238,15 @@ function triggerAlert(learned, current) {
             <td style="padding: 10px; color: #ff3131;">+${(current - learned).toFixed(2)}</td>
         `;
         tbody.prepend(row);
+        
+        // Add to array for email
+        theftLogs.push({
+            time: now.toLocaleTimeString(),
+            learned_current: learned.toFixed(2),
+            current: current.toFixed(2),
+            difference: (current - learned).toFixed(2)
+        });
+
         showToast("⚠️ Electricity Theft Detected!");
         sendNotification();
     }
@@ -243,6 +261,11 @@ function resetAlert() {
         indicator.innerText = "MONITORING";
         subtext.innerText = "System Operating Correctly";
         subtext.style.color = "#8b949e";
+
+        // Start 10 second timer for auto-emailing
+        if (theftLogs.length > 0 && currentEmail && !theftTimer) {
+            theftTimer = setTimeout(autoSendLogs, 10000);
+        }
     }
 }
 
@@ -291,6 +314,130 @@ function generateApiKey() {
 function openModal() { document.getElementById('setupModal').style.display = 'block'; }
 function closeModal() { document.getElementById('setupModal').style.display = 'none'; }
 
+function openEmailModal() { 
+    document.getElementById('emailModal').style.display = 'block'; 
+    document.getElementById('email-step-1').style.display = 'block';
+    document.getElementById('email-step-2').style.display = 'none';
+}
+function closeEmailModal() { document.getElementById('emailModal').style.display = 'none'; }
+
+function maskEmail(email) {
+    if (!email) return "";
+    const [user, domain] = email.split("@");
+    return user.charAt(0) + "***@" + domain;
+}
+
+function updateEmailUI() {
+    const setupBtn = document.getElementById('setupEmailBtn');
+    const logoutBtn = document.getElementById('logoutEmailBtn');
+    
+    if (currentEmail) {
+        setupBtn.style.display = "none";
+        logoutBtn.style.display = "block";
+        logoutBtn.innerText = "LOGOUT (" + maskEmail(currentEmail) + ")";
+    } else {
+        setupBtn.style.display = "block";
+        logoutBtn.style.display = "none";
+    }
+}
+
+async function sendOTP() {
+    const email = document.getElementById('setupEmailInput').value;
+    if (!email) {
+        alert("Please enter a valid email");
+        return;
+    }
+    
+    try {
+        const res = await fetch('/send-otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email })
+        });
+        const data = await res.json();
+        if (data.success) {
+            document.getElementById('email-step-1').style.display = 'none';
+            document.getElementById('email-step-2').style.display = 'block';
+            showToast("OTP sent to your email!");
+        } else {
+            alert(data.message);
+        }
+    } catch (err) {
+        console.error("OTP send error:", err);
+    }
+}
+
+async function verifyOTP() {
+    const email = document.getElementById('setupEmailInput').value;
+    const otp = document.getElementById('otpInput').value;
+    
+    try {
+        const res = await fetch('/verify-otp', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email, otp })
+        });
+        const data = await res.json();
+        if (data.success) {
+            currentEmail = email;
+            localStorage.setItem('electricity_email', email);
+            updateEmailUI();
+            closeEmailModal();
+            showToast("Email verified successfully!");
+        } else {
+            alert("Invalid OTP, please try again.");
+        }
+    } catch (err) {
+        console.error("OTP verify error:", err);
+    }
+}
+
+function logoutEmail() {
+    currentEmail = null;
+    localStorage.removeItem('electricity_email');
+    updateEmailUI();
+    showToast("Email logged out.");
+}
+
+async function autoSendLogs() {
+    if (theftLogs.length > 0 && currentEmail) {
+        await sendLogsToBackend(theftLogs);
+        theftLogs = []; // Clear after sending
+        theftTimer = null;
+    }
+}
+
+async function manualSendLogs() {
+    if (!currentEmail) {
+        alert("Please setup email first!");
+        return;
+    }
+    if (theftLogs.length === 0) {
+        alert("No logs to send!");
+        return;
+    }
+    const success = await sendLogsToBackend(theftLogs);
+    if (success) {
+        theftLogs = [];
+        showToast("Email Sent Successfully");
+    }
+}
+
+async function sendLogsToBackend(logs) {
+    try {
+        const res = await fetch('/send-logs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ logs })
+        });
+        const data = await res.json();
+        return data.success;
+    } catch (err) {
+        console.error("Send logs error:", err);
+        return false;
+    }
+}
+
 function sendNotification() {
     if (Notification.permission === "granted") {
         new Notification("⚠️ Electricity Theft Detected!", {
@@ -321,6 +468,7 @@ window.onload = () => {
     }
 
     initCharts();
+    updateEmailUI();
     if (apiKey) {
         const display = document.getElementById('api-key-display');
         const box = document.getElementById('api-key-box');
@@ -342,5 +490,7 @@ window.onload = () => {
 
 window.onclick = (event) => {
     const modal = document.getElementById('setupModal');
+    const emailModal = document.getElementById('emailModal');
     if (event.target == modal) closeModal();
+    if (event.target == emailModal) closeEmailModal();
 };

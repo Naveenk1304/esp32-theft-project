@@ -3,9 +3,22 @@ import random
 import time
 import os
 import pickle
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
 
 app = Flask(__name__)
 app.secret_key = 'smart_electricity_theft_secret'
+
+# ---------------- EMAIL CONFIG ----------------
+SMTP_SERVER = "smtp.gmail.com"
+SMTP_PORT = 587
+SENDER_EMAIL = "pandi40512@gmail.com"  # Replace with your email
+SENDER_PASSWORD = "vmqrcjniojnkoytt" # Replace with your app password
+
+# ---------------- TEMP STORAGE ----------------
+temp_otps = {} # {email: otp}
+verified_email = None # Store globally for simplicity as per requirement 2.2
 
 # ---------------- ML MODEL LOAD ----------------
 model_path = os.path.join(os.path.dirname(__file__), "model.pkl")
@@ -133,6 +146,94 @@ def get_latest():
         "last_update": latest_data['last_update'],
         "is_real": is_real
     })
+
+# ---------------- EMAIL FUNCTIONS ----------------
+def send_otp_email(email, otp):
+    msg = MIMEMultipart()
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = email
+    msg['Subject'] = "Your OTP for Smart Electricity Monitor Setup"
+    
+    body = f"Your OTP for verification is: {otp}"
+    msg.attach(MIMEText(body, 'plain'))
+    
+    try:
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Error sending OTP email: {e}")
+        return False
+
+def send_logs_email(email, logs):
+    msg = MIMEMultipart()
+    msg['From'] = SENDER_EMAIL
+    msg['To'] = email
+    msg['Subject'] = "🚨 Smart Electricity Monitor - Theft Logs"
+    
+    body = "Theft detected. See logs below:\n\n"
+    for log in logs:
+        body += f"Time: {log.get('time')}\nLearned: {log.get('learned_current')} A\nCurrent Now: {log.get('current')} A\nDifference: {log.get('difference')} A\n"
+        body += "-" * 30 + "\n"
+    
+    msg.attach(MIMEText(body, 'plain'))
+    
+    try:
+        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        server.starttls()
+        server.login(SENDER_EMAIL, SENDER_PASSWORD)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Error sending logs email: {e}")
+        return False
+
+# ---------------- EMAIL ROUTES ----------------
+@app.route('/send-otp', methods=['POST'])
+def send_otp_api():
+    email = request.json.get('email')
+    if not email:
+        return jsonify({"success": False, "message": "Email is required"})
+    
+    otp = str(random.randint(100000, 999999))
+    temp_otps[email] = otp
+    
+    if send_otp_email(email, otp):
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Failed to send email"})
+
+@app.route('/verify-otp', methods=['POST'])
+def verify_otp_api():
+    global verified_email
+    data = request.json
+    email = data.get('email')
+    otp = data.get('otp')
+    
+    if email in temp_otps and temp_otps[email] == otp:
+        verified_email = email
+        del temp_otps[email]
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Invalid OTP"})
+
+@app.route('/send-logs', methods=['POST'])
+def send_logs_api():
+    # If frontend sends logs, use them. Otherwise, we don't have them in backend.
+    data = request.json
+    logs = data.get('logs', [])
+    
+    if not verified_email:
+        return jsonify({"success": False, "message": "Email not verified"})
+    
+    if not logs:
+        return jsonify({"success": False, "message": "No logs to send"})
+    
+    if send_logs_email(verified_email, logs):
+        return jsonify({"success": True})
+    return jsonify({"success": False, "message": "Failed to send logs email"})
 
 # ---------------- RUN ----------------
 if __name__ == "__main__":
