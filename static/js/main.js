@@ -358,7 +358,7 @@ async function sendOTP() {
     try {
         data = await res.json();
     } catch (e) {
-        alert("Server error. Check backend.");
+        alert("Server error. Please try again.");
         return;
     }
     

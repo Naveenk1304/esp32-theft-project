@@ -3,18 +3,13 @@ import random
 import time
 import os
 import pickle
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
+import requests
 
 app = Flask(__name__)
 app.secret_key = 'smart_electricity_theft_secret'
 
-# ---------------- EMAIL CONFIG ----------------
-SMTP_SERVER = "smtp.gmail.com"
-SMTP_PORT = 587
-SENDER_EMAIL = "pandi40512@gmail.com"  # Replace with your email
-SENDER_PASSWORD = "vmqrcjniojnkoytt" # Replace with your app password
+# ---------------- EMAIL CONFIG (RESEND) ----------------
+RESEND_API_KEY = os.getenv("RESEND_API_KEY")
 
 # ---------------- TEMP STORAGE ----------------
 temp_otps = {} # {email: otp}
@@ -150,44 +145,54 @@ def get_latest():
 # ---------------- EMAIL FUNCTIONS ----------------
 def send_otp_email(to_email, otp):
     try:
-        import smtplib
-        from email.mime.text import MIMEText
-        sender = SENDER_EMAIL
-        password = SENDER_PASSWORD
-        msg = MIMEText(f"Your OTP is {otp}")
-        msg['Subject'] = "OTP Verification"
-        msg['From'] = sender
-        msg['To'] = to_email
-        server = smtplib.SMTP("smtp.gmail.com", 587)
-        server.starttls()
-        server.login(sender, password)
-        server.sendmail(sender, to_email, msg.as_string())
-        server.quit()
-        return True
+        import requests
+        import os
+        api_key = os.getenv("RESEND_API_KEY")
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "from": "onboarding@resend.dev",
+                "to": [to_email],
+                "subject": "OTP Verification",
+                "html": f"<h3>Your OTP is: {otp}</h3>"
+            }
+        )
+        print("RESEND RESPONSE:", response.text)
+        return response.status_code == 200
     except Exception as e:
-        print("MAIL ERROR:", e)
+        print("EMAIL ERROR:", e)
         return False
 
 def send_logs_email(email, logs):
-    msg = MIMEMultipart()
-    msg['From'] = SENDER_EMAIL
-    msg['To'] = email
-    msg['Subject'] = "🚨 Smart Electricity Monitor - Theft Logs"
-    
-    body = "Theft detected. See logs below:\n\n"
-    for log in logs:
-        body += f"Time: {log.get('time')}\nLearned: {log.get('learned_current')} A\nCurrent Now: {log.get('current')} A\nDifference: {log.get('difference')} A\n"
-        body += "-" * 30 + "\n"
-    
-    msg.attach(MIMEText(body, 'plain'))
-    
     try:
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
-        server.starttls()
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        server.send_message(msg)
-        server.quit()
-        return True
+        import requests
+        import os
+        api_key = os.getenv("RESEND_API_KEY")
+        
+        body_html = "<h3>Theft detected. See logs below:</h3><br>"
+        for log in logs:
+            body_html += f"<b>Time:</b> {log.get('time')}<br><b>Learned:</b> {log.get('learned_current')} A<br><b>Current Now:</b> {log.get('current')} A<br><b>Difference:</b> {log.get('difference')} A<br>"
+            body_html += "-" * 30 + "<br>"
+
+        response = requests.post(
+            "https://api.resend.com/emails",
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json"
+            },
+            json={
+                "from": "onboarding@resend.dev",
+                "to": [email],
+                "subject": "🚨 Smart Electricity Monitor - Theft Logs",
+                "html": body_html
+            }
+        )
+        print("RESEND RESPONSE (LOGS):", response.text)
+        return response.status_code == 200
     except Exception as e:
         print(f"Error sending logs email: {e}")
         return False
@@ -196,10 +201,10 @@ def send_logs_email(email, logs):
 @app.route('/send-otp', methods=['POST'])
 def send_otp():
     try:
-        data = request.get_json()
-        email = data.get("email")
-        if not email:
-            return jsonify({"success": False, "message": "Email required"}), 400
+        data = request.get_json(silent=True)
+        if not data or "email" not in data:
+            return jsonify({"success": False, "message": "Invalid request"}), 400
+        email = data["email"]
         
         otp = str(random.randint(100000, 999999))
         temp_otps[email] = otp
@@ -210,7 +215,7 @@ def send_otp():
         else:
             return jsonify({"success": False, "message": "Email failed"}), 500
     except Exception as e:
-        print("ERROR:", e)
+        print("FULL ERROR:", str(e))
         return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route('/verify-otp', methods=['POST'])
