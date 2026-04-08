@@ -348,22 +348,27 @@ async function sendOTP() {
         return;
     }
     
+    const res = await fetch('/send-otp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email })
+    });
+    
+    let data;
     try {
-        const res = await fetch('/send-otp', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email })
-        });
-        const data = await res.json();
-        if (data.success) {
-            document.getElementById('email-step-1').style.display = 'none';
-            document.getElementById('email-step-2').style.display = 'block';
-            showToast("OTP sent to your email!");
-        } else {
-            alert(data.message);
-        }
-    } catch (err) {
-        console.error("OTP send error:", err);
+        data = await res.json();
+    } catch (e) {
+        alert("Server error. Check backend.");
+        return;
+    }
+    
+    if (data.success) {
+        alert("OTP sent successfully");
+        document.getElementById('email-step-1').style.display = 'none';
+        document.getElementById('email-step-2').style.display = 'block';
+        showToast("OTP sent to your email!");
+    } else {
+        alert(data.message);
     }
 }
 

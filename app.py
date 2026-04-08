@@ -148,24 +148,24 @@ def get_latest():
     })
 
 # ---------------- EMAIL FUNCTIONS ----------------
-def send_otp_email(email, otp):
-    msg = MIMEMultipart()
-    msg['From'] = SENDER_EMAIL
-    msg['To'] = email
-    msg['Subject'] = "Your OTP for Smart Electricity Monitor Setup"
-    
-    body = f"Your OTP for verification is: {otp}"
-    msg.attach(MIMEText(body, 'plain'))
-    
+def send_otp_email(to_email, otp):
     try:
-        server = smtplib.SMTP(SMTP_SERVER, SMTP_PORT)
+        import smtplib
+        from email.mime.text import MIMEText
+        sender = SENDER_EMAIL
+        password = SENDER_PASSWORD
+        msg = MIMEText(f"Your OTP is {otp}")
+        msg['Subject'] = "OTP Verification"
+        msg['From'] = sender
+        msg['To'] = to_email
+        server = smtplib.SMTP("smtp.gmail.com", 587)
         server.starttls()
-        server.login(SENDER_EMAIL, SENDER_PASSWORD)
-        server.send_message(msg)
+        server.login(sender, password)
+        server.sendmail(sender, to_email, msg.as_string())
         server.quit()
         return True
     except Exception as e:
-        print(f"Error sending OTP email: {e}")
+        print("MAIL ERROR:", e)
         return False
 
 def send_logs_email(email, logs):
@@ -194,17 +194,24 @@ def send_logs_email(email, logs):
 
 # ---------------- EMAIL ROUTES ----------------
 @app.route('/send-otp', methods=['POST'])
-def send_otp_api():
-    email = request.json.get('email')
-    if not email:
-        return jsonify({"success": False, "message": "Email is required"})
-    
-    otp = str(random.randint(100000, 999999))
-    temp_otps[email] = otp
-    
-    if send_otp_email(email, otp):
-        return jsonify({"success": True})
-    return jsonify({"success": False, "message": "Failed to send email"})
+def send_otp():
+    try:
+        data = request.get_json()
+        email = data.get("email")
+        if not email:
+            return jsonify({"success": False, "message": "Email required"}), 400
+        
+        otp = str(random.randint(100000, 999999))
+        temp_otps[email] = otp
+        
+        success = send_otp_email(email, otp)
+        if success:
+            return jsonify({"success": True, "message": "OTP sent"})
+        else:
+            return jsonify({"success": False, "message": "Email failed"}), 500
+    except Exception as e:
+        print("ERROR:", e)
+        return jsonify({"success": False, "message": str(e)}), 500
 
 @app.route('/verify-otp', methods=['POST'])
 def verify_otp_api():
