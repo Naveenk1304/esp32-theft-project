@@ -116,20 +116,38 @@ def receive_data():
 @app.route('/api/latest')
 def get_latest():
     global latest_data
+
     now = int(time.time() * 1000)
-    
-    # If no data or data is older than 5 seconds, switch to demo data
-    is_real = latest_data['api_key'] is not None and (now - latest_data['last_update']) < 5000
 
-    if not is_real:
-        latest_data['voltage'] = random.uniform(220, 240)
-        latest_data['current'] = random.uniform(1, 5)
-        latest_data['power'] = random.uniform(200, 800)
-        latest_data['energy'] = random.uniform(10, 20)
-        # Note: we don't update last_update here so it stays stale for sensor check
+    # 1️⃣ No API key → DEMO MODE
+    if latest_data['api_key'] is None:
+        return jsonify({
+            "voltage": random.uniform(220, 240),
+            "current": random.uniform(1, 5),
+            "power": random.uniform(200, 800),
+            "energy": random.uniform(10, 20),
+            "theft": False,
+            "last_update": now,
+            "is_real": False
+        })
 
-    # ML prediction
-    theft = predict_theft(latest_data['current'], latest_data['power'])
+    # 2️⃣ API key iruku but data illa → WAIT MODE
+    if latest_data['last_update'] == 0:
+        return jsonify({
+            "voltage": 0,
+            "current": 0,
+            "power": 0,
+            "energy": 0,
+            "theft": False,
+            "last_update": now,
+            "is_real": False
+        })
+
+    # 3️⃣ REAL DATA MODE 🔥
+    theft = predict_theft(
+        latest_data['current'],
+        latest_data['power']
+    )
     latest_data['theft'] = theft
 
     return jsonify({
@@ -139,7 +157,7 @@ def get_latest():
         "energy": latest_data['energy'],
         "theft": latest_data['theft'],
         "last_update": latest_data['last_update'],
-        "is_real": is_real
+        "is_real": True
     })
 
 # ---------------- EMAIL FUNCTIONS ----------------
