@@ -2,29 +2,25 @@ from flask import Flask, render_template, request, jsonify, session, redirect, u
 import random
 import time
 import os
-import pickle
-import requests
+import threading
+from collections import deque
+from twilio.rest import Client
+from datetime import datetime
 
 app = Flask(__name__)
-app.secret_key = 'smart_electricity_theft_secret'
+app.secret_key = os.getenv('SECRET_KEY', 'smart_electricity_theft_secret')
 
-# ---------------- EMAIL CONFIG (RESEND) ----------------
-RESEND_API_KEY = os.getenv("RESEND_API_KEY")
+# ---------------- TWILIO CONFIG ----------------
+TWILIO_ACCOUNT_SID = os.getenv("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.getenv("TWILIO_AUTH_TOKEN")
+TWILIO_PHONE_NUMBER = os.getenv("TWILIO_PHONE_NUMBER") 
+RECIPIENT_PHONE_NUMBER = os.getenv("RECIPIENT_PHONE_NUMBER")
 
-# ---------------- TEMP STORAGE ----------------
-temp_otps = {} # {email: otp}
-verified_email = None # Store globally for simplicity as per requirement 2.2
-
-# ---------------- ML MODEL LOAD ----------------
-model_path = os.path.join(os.path.dirname(__file__), "model.pkl")
-model = pickle.load(open(model_path, "rb"))
-
-def predict_theft(current, power):
-    try:
-        result = model.predict([[float(current), float(power)]])
-        return bool(result[0])
-    except:
-        return False
+# ---------------- THEFT TRACKING ----------------
+readings_history = deque(maxlen=50)
+theft_logs = []
+is_theft_active = False
+theft_timer = None
 
 # ---------------- DATA STORAGE ----------------
 latest_data = {
@@ -38,6 +34,36 @@ latest_data = {
 }
 
 generated_api_key = None
+
+# ---------------- HELPER FUNCTIONS ----------------
+def send_whatsapp(message):
+    try:
+        if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER, RECIPIENT_PHONE_NUMBER]):
+            print("[ERROR] Twilio credentials missing in environment variables.")
+            return
+
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        msg = client.messages.create(
+            body=message,
+            from_=f"whatsapp:{TWILIO_PHONE_NUMBER}",
+            to=f"whatsapp:{RECIPIENT_PHONE_NUMBER}"
+        )
+        print(f"[DEBUG] WhatsApp sent: {msg.sid}")
+    except Exception as e:
+        print(f"[ERROR] WhatsApp failed: {e}")
+
+def send_summary_and_clear():
+    global theft_logs
+    if not theft_logs:
+        return
+    
+    summary = "🚨 *Smart Electricity Monitor - Theft Summary*\n\n"
+    for log in theft_logs:
+        summary += f"• {log['timestamp']}: {log['current']}A, {log['power']}W\n"
+    
+    send_whatsapp(summary)
+    theft_logs = []
+    print("[DEBUG] Theft summary sent and logs cleared.")
 
 # ---------------- LOGIN ----------------
 @app.route('/')
@@ -72,8 +98,9 @@ def dashboard():
 # ---------------- API KEY ----------------
 @app.route('/generate-key')
 def generate_key():
-    key = "NK" + str(random.randint(100000, 999999))
-    return jsonify({"api_key": key})
+    global generated_api_key
+    generated_api_key = "NK" + str(random.randint(100000, 999999))
+    return jsonify({"api_key": generated_api_key})
 
 @app.route('/api/validate-key', methods=['POST'])
 def validate_key():
@@ -92,23 +119,62 @@ def validate_key():
 # ---------------- ESP32 DATA RECEIVE ----------------
 @app.route('/data', methods=['POST'])
 def receive_data():
-    global latest_data
+    global latest_data, readings_history, theft_logs, is_theft_active, theft_timer
 
     data = request.json
-
     if not data:
         return jsonify({"status": "error", "message": "No data received"}), 400
 
-    # API key check
-   #if data.get("api_key") != generated_api_key:
-       #return jsonify({"status": "error", "message": "Invalid API Key"}), 403
+    try:
+        current = float(data.get('current', 0))
+        power = float(data.get('power', 0))
+    except (ValueError, TypeError):
+        return jsonify({"status": "error", "message": "Invalid data format"}), 400
 
+    # Update latest data
     latest_data['voltage'] = data.get('voltage', 0)
-    latest_data['current'] = data.get('current', 0)
-    latest_data['power'] = data.get('power', 0)
+    latest_data['current'] = current
+    latest_data['power'] = power
     latest_data['energy'] = data.get('energy', 0)
     latest_data['api_key'] = data.get('api_key')
     latest_data['last_update'] = int(time.time() * 1000)
+
+    # ML Detection (Dynamic Average)
+    avg_current = sum(readings_history) / len(readings_history) if readings_history else 0
+    theft = False
+    
+    # Require at least 5 readings to establish a baseline average
+    if len(readings_history) >= 5:
+         if current > 1.5 * avg_current and current > 0.05: # current > 0.05 to avoid noise triggers
+             theft = True
+
+    # Update history
+    readings_history.append(current)
+    latest_data['theft'] = theft
+
+    if theft:
+        print(f"[DEBUG] Theft Detected! Current: {current}A, Avg: {avg_current:.2f}A")
+        theft_logs.append({
+            'timestamp': datetime.now().strftime("%H:%M:%S"),
+            'current': current,
+            'power': power
+        })
+        
+        # Immediate alert if transition to theft
+        if not is_theft_active:
+            is_theft_active = True
+            if theft_timer:
+                theft_timer.cancel()
+                theft_timer = None
+            send_whatsapp(f"🚨 *Theft Alert!* \nDetected: {current}A \nAverage: {avg_current:.2f}A")
+    else:
+        # Check transition from theft to normal
+        if is_theft_active:
+            print("[DEBUG] System back to normal. Starting 10s timer for logs.")
+            is_theft_active = False
+            # Wait 10 seconds before sending full summary (non-blocking)
+            theft_timer = threading.Timer(10.0, send_summary_and_clear)
+            theft_timer.start()
 
     return jsonify({"status": "success"})
 
@@ -116,7 +182,6 @@ def receive_data():
 @app.route('/api/latest')
 def get_latest():
     global latest_data
-
     now = int(time.time() * 1000)
 
     # 1️⃣ No API key → DEMO MODE
@@ -144,12 +209,6 @@ def get_latest():
         })
 
     # 3️⃣ REAL DATA MODE 🔥
-    theft = predict_theft(
-        latest_data['current'],
-        latest_data['power']
-    )
-    latest_data['theft'] = theft
-
     return jsonify({
         "voltage": latest_data['voltage'],
         "current": latest_data['current'],
@@ -159,108 +218,6 @@ def get_latest():
         "last_update": latest_data['last_update'],
         "is_real": True
     })
-
-# ---------------- EMAIL FUNCTIONS ----------------
-def send_otp_email(to_email, otp):
-    try:
-        import requests
-        import os
-        api_key = os.getenv("RESEND_API_KEY")
-        response = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "from": "onboarding@resend.dev",
-                "to": [to_email],
-                "subject": "OTP Verification",
-                "html": f"<h3>Your OTP is: {otp}</h3>"
-            }
-        )
-        print("RESEND RESPONSE:", response.text)
-        return response.status_code == 200
-    except Exception as e:
-        print("EMAIL ERROR:", e)
-        return False
-
-def send_logs_email(email, logs):
-    try:
-        import requests
-        import os
-        api_key = os.getenv("RESEND_API_KEY")
-        
-        body_html = "<h3>Theft detected. See logs below:</h3><br>"
-        for log in logs:
-            body_html += f"<b>Time:</b> {log.get('time')}<br><b>Learned:</b> {log.get('learned_current')} A<br><b>Current Now:</b> {log.get('current')} A<br><b>Difference:</b> {log.get('difference')} A<br>"
-            body_html += "-" * 30 + "<br>"
-
-        response = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json"
-            },
-            json={
-                "from": "onboarding@resend.dev",
-                "to": [email],
-                "subject": "🚨 Smart Electricity Monitor - Theft Logs",
-                "html": body_html
-            }
-        )
-        print("RESEND RESPONSE (LOGS):", response.text)
-        return response.status_code == 200
-    except Exception as e:
-        print(f"Error sending logs email: {e}")
-        return False
-
-# ---------------- EMAIL ROUTES ----------------
-@app.route('/send-otp', methods=['POST'])
-def send_otp():
-    data = request.get_json()
-    email = data.get('email')
-
-    if not email:
-        return jsonify({"success": False, "message": "Email required"}), 400
-
-    otp = random.randint(100000, 999999)
-
-    success = send_otp_email(email, otp)
-
-    if success:
-        return jsonify({"success": True})
-    else:
-        return jsonify({"success": False, "message": "Email failed"}), 500
-
-@app.route('/verify-otp', methods=['POST'])
-def verify_otp_api():
-    global verified_email
-    data = request.json
-    email = data.get('email')
-    otp = data.get('otp')
-    
-    if email in temp_otps and temp_otps[email] == otp:
-        verified_email = email
-        del temp_otps[email]
-        return jsonify({"success": True})
-    return jsonify({"success": False, "message": "Invalid OTP"})
-
-@app.route('/send-logs', methods=['POST'])
-def send_logs_api():
-    # If frontend sends logs, use them. Otherwise, we don't have them in backend.
-    data = request.json
-    logs = data.get('logs', [])
-    
-    if not verified_email:
-        return jsonify({"success": False, "message": "Email not verified"})
-    
-    if not logs:
-        return jsonify({"success": False, "message": "No logs to send"})
-    
-    if send_logs_email(verified_email, logs):
-        return jsonify({"success": True})
-    return jsonify({"success": False, "message": "Failed to send logs email"})
 
 # ---------------- RUN ----------------
 if __name__ == "__main__":
