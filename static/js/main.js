@@ -76,8 +76,17 @@ async function fetchLatestData() {
 
         updateUI(data);
         
-        if (isLearning && data.is_real) {
-            processLearning(data.current);
+        // Block learning if sensor disconnected
+        if (isLearning) {
+            if (data.is_real) {
+                processLearning(data.current);
+            } else {
+                // If we were learning but sensor disconnected, reset learning
+                isLearning = false;
+                learningReadings = [];
+                document.getElementById('learning-container').style.display = "none";
+                showToast("Learning stopped: Sensor disconnected");
+            }
         }
 
     } catch (e) {
@@ -86,12 +95,20 @@ async function fetchLatestData() {
 }
 
 function updateUI(data) {
-    // Stats Update
-    document.getElementById('val-voltage').innerText = Number(data.voltage).toFixed(1);
-    document.getElementById('val-current').innerText = Number(data.current).toFixed(2);
-    document.getElementById('val-power').innerText = Number(data.power).toFixed(1);
-    document.getElementById('val-energy').innerText = Number(data.energy).toFixed(3);
+    // Stats Update: If not real data, show 0 instead of demo values for numeric fields
+    if (data.is_real) {
+        document.getElementById('val-voltage').innerText = Number(data.voltage).toFixed(1);
+        document.getElementById('val-current').innerText = Number(data.current).toFixed(2);
+        document.getElementById('val-power').innerText = Number(data.power).toFixed(1);
+        document.getElementById('val-energy').innerText = Number(data.energy).toFixed(3);
+    } else {
+        document.getElementById('val-voltage').innerText = "0.0";
+        document.getElementById('val-current').innerText = "0.00";
+        document.getElementById('val-power').innerText = "0.0";
+        document.getElementById('val-energy').innerText = "0.000";
+    }
 
+    // Graph still updates real-time with whatever data comes (demo or real)
     updateCharts(data);
 
     // Status Display
@@ -121,7 +138,7 @@ function updateUI(data) {
             subtext.style.color = "#ff3131";
         } else {
             indicator.classList.remove('theft');
-            subtext.innerText = isLearning ? "Collecting baseline data..." : "System Operating Correctly";
+            subtext.innerText = isLearning ? "⚡ Switch ON appliances" : "System Operating Correctly";
             subtext.style.color = "#8b949e";
         }
 
@@ -171,16 +188,30 @@ function processLearning(current) {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({average_current: avg})
-        }).then(() => {
-            isLearning = false;
-            learningReadings = [];
-            document.getElementById('learning-container').style.display = "none";
-            showToast("Learning Complete! AI is now monitoring.");
+        }).then(res => {
+            if (res.ok) {
+                isLearning = false;
+                learningReadings = [];
+                document.getElementById('learning-container').style.display = "none";
+                showToast("Learning Complete! AI is now monitoring.");
+            } else {
+                showToast("Learning failed: Sensor disconnected");
+                isLearning = false;
+            }
         });
     }
 }
 
-function startLearning() {
+async function startLearning() {
+    // Safety: Prevent learning if no real data
+    const response = await fetch('/api/latest');
+    const data = await response.json();
+    
+    if (!data.is_real) {
+        showToast("Cannot start learning in Demo Mode!");
+        return;
+    }
+
     isLearning = true;
     learningReadings = [];
     document.getElementById('learning-container').style.display = "block";
