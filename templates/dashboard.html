@@ -26,6 +26,7 @@
             <div id="action-buttons">
                 <button class="setup-btn" id="generateKeyHeaderBtn" onclick="openModal()">GENERATE API KEY</button>
                 <button class="setup-btn" id="learnBtn" style="display:none; background: #2ea043;" onclick="startLearning()">LEARN PATTERN</button>
+                <button class="setup-btn" id="resetBtn" style="display:none; background: #d73a49;" onclick="resetPattern()">RESET PATTERN</button>
             </div>
             <a href="/logout" style="color: #8b949e; text-decoration: none; font-size: 0.8rem; border-left: 1px solid #30363d; padding-left: 1rem; margin-left: 1rem;">LOGOUT</a>
         </div>
@@ -67,7 +68,10 @@
         <div class="theft-table-section" id="theft-table-container" style="display:none; margin-top: 2rem;">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
                 <h3 style="color: #ff3131;">🚨 THEFT LOGS</h3>
-                <button class="setup-btn" id="sendLogsBtn" style="background: #2ea043; font-size: 0.75rem;" onclick="manualSendLogs()">SEND LOGS</button>
+                <div style="display: flex; gap: 10px;">
+                    <button class="setup-btn" id="clearLogsBtn" style="background: #30363d; font-size: 0.75rem;" onclick="clearLogs()">CLEAR LOGS</button>
+                    <button class="setup-btn" id="sendLogsBtn" style="background: #2ea043; font-size: 0.75rem;" onclick="manualSendLogs()">SEND LOGS</button>
+                </div>
             </div>
             <div style="overflow-x: auto;">
                 <table id="theft-table" style="width: 100%; border-collapse: collapse; font-size: 0.85rem;">

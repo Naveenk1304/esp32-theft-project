@@ -3,59 +3,227 @@ import random
 import time
 import os
 import requests
-from datetime import datetime
+import json
+import threading
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
 app.secret_key = os.getenv('SECRET_KEY', 'smart_electricity_theft_secret')
 
-# ---------------- TELEGRAM CONFIG ----------------
+# ---------------- CONFIG ----------------
+DB_FILE = "db.json"
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
-# ---------------- SYSTEM STATE ----------------
-system_state = {
-    'latest_data': {
-        'voltage': 0,
-        'current': 0,
-        'power': 0,
-        'energy': 0,
-        'last_update': 0
-    },
-    'sensor_connected': False,
-    'learned_current': None,
-    'theft_logs': [],
-    'is_theft_active': False
-}
+# ---------------- IST TIME HELPER ----------------
+def get_ist_time():
+    # Assuming the environment might not have pytz
+    return datetime.utcnow() + timedelta(hours=5, minutes=30)
 
-# ---------------- LOG SYSTEM (MINUTE AVERAGING) ----------------
-# We only store 1 log per minute during theft.
-current_minute_data = {
-    'minute_timestamp': None,
-    'readings': []
-}
+def format_ist(dt):
+    return dt.strftime("%d-%b-%Y %I:%M %p IST")
 
-# ---------------- HELPER FUNCTIONS ----------------
-def send_telegram_msg(message):
-    if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID:
-        print("[ERROR] Telegram config missing")
-        return
-    
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
-    payload = {"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}
-    try:
-        requests.post(url, json=payload, timeout=5)
-    except Exception as e:
-        print(f"[ERROR] Telegram send failed: {e}")
+# ---------------- DATABASE SYSTEM ----------------
+class Database:
+    def __init__(self, filename):
+        self.filename = filename
+        self.lock = threading.Lock()
+        if not os.path.exists(self.filename):
+            self.data = {
+                "ai_model": {
+                    "avgVoltage": 0.0,
+                    "avgCurrent": 0.0,
+                    "avgPower": 0.0,
+                    "sampleCount": 0,
+                    "trained": False,
+                    "learningStartTime": None
+                },
+                "theft_logs": [],
+                "continuous_logs": [],
+                "telegram_history": [],
+                "active_api_key": None
+            }
+            self.save()
+        else:
+            self.load()
 
-def send_theft_summary():
-    if not system_state['theft_logs']:
-        return
-    summary = "🚨 *Theft Alert Summary*\n\n"
-    for log in system_state['theft_logs'][-5:]: # Last 5 logs
-        summary += f"📅 {log['timestamp']}\n💡 Learned: {log['learned_current']}A\n🔥 Current: {log['current_now']}A\n⚠️ Diff: {log['difference']}A\n\n"
-    send_telegram_msg(summary)
+    def load(self):
+        with self.lock:
+            with open(self.filename, 'r') as f:
+                self.data = json.load(f)
 
-# ---------------- LOGIN ----------------
+    def save(self):
+        with self.lock:
+            with open(self.filename, 'w') as f:
+                json.dump(self.data, f, indent=4)
+
+    def get(self, key):
+        return self.data.get(key)
+
+    def set(self, key, value):
+        self.data[key] = value
+        self.save()
+
+db = Database(DB_FILE)
+
+# ---------------- MONITORING SERVICE ----------------
+class MonitoringService:
+    def __init__(self):
+        self.latest_data = {
+            'voltage': 0, 'current': 0, 'power': 0, 'energy': 0, 'last_update': 0
+        }
+        self.status = "Power OFF"
+        self.is_theft_active = False
+        self.last_log_time = 0
+        self.last_telegram_report = 0
+        self.lock = threading.Lock()
+        
+        # Start background threads
+        threading.Thread(target=self._background_loop, daemon=True).start()
+
+    def update_data(self, data):
+        with self.lock:
+            self.latest_data.update({
+                'voltage': float(data.get('voltage', 0)),
+                'current': float(data.get('current', 0)),
+                'power': float(data.get('power', 0)),
+                'energy': float(data.get('energy', 0)),
+                'last_update': time.time()
+            })
+            self._process_logic()
+
+    def _process_logic(self):
+        model = db.get("ai_model")
+        current_data = self.latest_data
+        
+        # 1. Learning Logic
+        if model.get("learningStartTime") and not model.get("trained"):
+            self.status = "Learning Pattern"
+            start_time = datetime.fromisoformat(model["learningStartTime"])
+            elapsed = (datetime.utcnow() - start_time).total_seconds()
+            
+            # EMA Smoothing: smoothed = (oldValue * 0.8) + (newValue * 0.2)
+            if model["sampleCount"] == 0:
+                model["avgVoltage"] = current_data["voltage"]
+                model["avgCurrent"] = current_data["current"]
+                model["avgPower"] = current_data["power"]
+            else:
+                model["avgVoltage"] = (model["avgVoltage"] * 0.8) + (current_data["voltage"] * 0.2)
+                model["avgCurrent"] = (model["avgCurrent"] * 0.8) + (current_data["current"] * 0.2)
+                model["avgPower"] = (model["avgPower"] * 0.8) + (current_data["power"] * 0.2)
+            
+            model["sampleCount"] += 1
+            
+            # min 10 mins (600s) OR min 1000 samples
+            if elapsed >= 600 or model["sampleCount"] >= 1000:
+                model["trained"] = True
+                self.send_telegram_msg("✅ *Learning Complete!*\nAI is now monitoring the grid.")
+            
+            db.set("ai_model", model)
+
+        # 2. Monitoring & Theft Detection
+        elif model.get("trained"):
+            self.status = "AI Monitoring"
+            avg_current = model["avgCurrent"]
+            if avg_current > 0:
+                deviation = abs(current_data["current"] - avg_current) / avg_current
+                if deviation > 0.50:
+                    self.status = "Theft Alert"
+                    if not self.is_theft_active:
+                        self.is_theft_active = True
+                        self._trigger_theft_alert(current_data, avg_current)
+                else:
+                    self.is_theft_active = False
+        else:
+            self.status = "AI READY"
+
+    def _trigger_theft_alert(self, data, learned):
+        ist_now = get_ist_time()
+        timestamp = format_ist(ist_now)
+        
+        # Immediate Telegram Alert
+        msg = f"🚨 *THEFT DETECTED!*\n\n" \
+              f"Current: {data['current']}A\n" \
+              f"Learned: {round(learned, 3)}A\n" \
+              f"Time: {timestamp}"
+        self.send_telegram_msg(msg)
+        
+        # Save Theft Log
+        logs = db.get("theft_logs")
+        logs.append({
+            "timestamp": timestamp,
+            "learned_current": round(learned, 3),
+            "current_now": data["current"],
+            "difference": round(data["current"] - learned, 3)
+        })
+        db.set("theft_logs", logs)
+
+    def _background_loop(self):
+        while True:
+            try:
+                now = time.time()
+                
+                # 30s Offline Detection
+                with self.lock:
+                    if now - self.latest_data['last_update'] > 30:
+                        self.status = "Power OFF"
+                        self.is_theft_active = False
+
+                # 1 min Logging
+                if now - self.last_log_time >= 60:
+                    self._save_continuous_log()
+                    self.last_log_time = now
+
+                # 2 min Telegram Report
+                if now - self.last_telegram_report >= 120:
+                    self._send_periodic_report()
+                    self.last_telegram_report = now
+
+            except Exception as e:
+                print(f"Error in background loop: {e}")
+            time.sleep(1)
+
+    def _save_continuous_log(self):
+        with self.lock:
+            if self.status == "Power OFF": return
+            
+            ist_now = get_ist_time()
+            log = {
+                "voltage": self.latest_data["voltage"],
+                "current": self.latest_data["current"],
+                "power": self.latest_data["power"],
+                "status": self.status,
+                "theftDetected": self.is_theft_active,
+                "timestamp": format_ist(ist_now)
+            }
+            logs = db.get("continuous_logs")
+            logs.append(log)
+            db.set("continuous_logs", logs)
+
+    def _send_periodic_report(self):
+        with self.lock:
+            if self.status == "Power OFF": return
+            
+            ist_now = get_ist_time()
+            msg = f"SMART GRID UPDATE\n\n" \
+                  f"Voltage: {int(self.latest_data['voltage'])}V\n" \
+                  f"Current: {self.latest_data['current']}A\n" \
+                  f"Power: {int(self.latest_data['power'])}W\n" \
+                  f"Status: {self.status}\n" \
+                  f"Theft: {'Yes' if self.is_theft_active else 'No'}\n" \
+                  f"Time: {format_ist(ist_now)}"
+            self.send_telegram_msg(msg)
+
+    def send_telegram_msg(self, message):
+        if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
+        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        try:
+            requests.post(url, json={"chat_id": TELEGRAM_CHAT_ID, "text": message, "parse_mode": "Markdown"}, timeout=5)
+        except: pass
+
+monitor = MonitoringService()
+
+# ---------------- ROUTES ----------------
 @app.route('/')
 def index():
     if 'user' in session: return redirect(url_for('dashboard'))
@@ -74,154 +242,91 @@ def logout():
     session.clear()
     return redirect('/')
 
-# ---------------- DASHBOARD ----------------
 @app.route('/dashboard')
 def dashboard():
     if 'user' not in session: return redirect('/')
     return render_template('dashboard.html')
 
-# ---------------- API KEY ----------------
 @app.route('/generate-key')
 def generate_key():
     if 'user' not in session: return jsonify({"error": "Unauthorized"}), 401
-    if 'api_key' not in session:
-        session['api_key'] = "NK-" + str(random.randint(100000, 999999))
-    return jsonify({"api_key": session['api_key']})
+    key = "NK-" + str(random.randint(100000, 999999))
+    session['api_key'] = key
+    return jsonify({"api_key": key})
 
-# ---------------- ESP32 DATA RECEIVE ----------------
+@app.route('/api/set-active-key', methods=['POST'])
+def set_active_key():
+    key = request.json.get('api_key')
+    db.set("active_api_key", key)
+    return jsonify({"success": True})
+
 @app.route('/data', methods=['POST'])
 def receive_data():
     data = request.json
     api_key = data.get('api_key')
+    active_key = db.get("active_api_key")
     
-    global active_api_key
-    if 'active_api_key' not in globals(): active_api_key = None
-    
-    if not api_key or api_key != active_api_key:
+    if not api_key or api_key != active_key:
         return jsonify({"status": "error", "message": "Invalid API Key"}), 403
 
-    system_state['sensor_connected'] = True
-    system_state['latest_data'].update({
-        'voltage': float(data.get('voltage', 0)),
-        'current': float(data.get('current', 0)),
-        'power': float(data.get('power', 0)),
-        'energy': float(data.get('energy', 0)),
-        'last_update': int(time.time() * 1000)
-    })
-
-    # Theft Detection & Log Averaging
-    if system_state['learned_current'] is not None:
-        current_now = system_state['latest_data']['current']
-        learned = system_state['learned_current']
-        threshold = 0.05
-        
-        if current_now > learned + threshold:
-            if not system_state['is_theft_active']:
-                system_state['is_theft_active'] = True
-                send_telegram_msg(f"🚨 *Theft Detected!* Current: {current_now}A")
-            
-            # Minute-based logging logic
-            now = datetime.now()
-            minute_key = now.strftime("%Y-%m-%d %H:%M")
-            
-            if current_minute_data['minute_timestamp'] != minute_key:
-                # If we have data from the previous minute, save it
-                if current_minute_data['readings']:
-                    avg_reading = sum(current_minute_data['readings']) / len(current_minute_data['readings'])
-                    system_state['theft_logs'].append({
-                        'timestamp': current_minute_data['minute_timestamp'] + ":00",
-                        'learned_current': round(learned, 3),
-                        'current_now': round(avg_reading, 3),
-                        'difference': round(avg_reading - learned, 3)
-                    })
-                # Reset for new minute
-                current_minute_data['minute_timestamp'] = minute_key
-                current_minute_data['readings'] = [current_now]
-            else:
-                current_minute_data['readings'].append(current_now)
-        else:
-            if system_state['is_theft_active']:
-                system_state['is_theft_active'] = False
-                # Final log for the current minute if theft ends
-                if current_minute_data['readings']:
-                    avg_reading = sum(current_minute_data['readings']) / len(current_minute_data['readings'])
-                    system_state['theft_logs'].append({
-                        'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                        'learned_current': round(learned, 3),
-                        'current_now': round(avg_reading, 3),
-                        'difference': round(avg_reading - learned, 3)
-                    })
-                    current_minute_data['readings'] = []
-                    current_minute_data['minute_timestamp'] = None
-                send_theft_summary()
-
+    monitor.update_data(data)
     return jsonify({"status": "success"})
 
-# ---------------- API ENDPOINTS ----------------
 @app.route('/api/latest')
 def get_latest():
-    now_ms = int(time.time() * 1000)
-    
-    # 10s Connectivity Timeout Logic
-    if system_state['sensor_connected'] and (now_ms - system_state['latest_data']['last_update'] > 10000):
-        # RESET SYSTEM ON DISCONNECT
-        system_state['sensor_connected'] = False
-        system_state['latest_data'].update({'voltage': 0, 'current': 0, 'power': 0, 'energy': 0})
-        system_state['learned_current'] = None # Stop AI
-        system_state['is_theft_active'] = False
-        # Do NOT clear theft_logs so they can still be seen in the table if they exist
+    with monitor.lock:
+        model = db.get("ai_model")
+        learning_progress = 0
+        if model["learningStartTime"] and not model["trained"]:
+            # Progress based on samples or time
+            start_time = datetime.fromisoformat(model["learningStartTime"])
+            elapsed = (datetime.utcnow() - start_time).total_seconds()
+            time_progress = (elapsed / 600) * 100
+            sample_progress = (model["sampleCount"] / 1000) * 100
+            learning_progress = min(max(time_progress, sample_progress), 100)
 
-    if not system_state['sensor_connected']:
-        # DEMO MODE
         return jsonify({
-            "voltage": 230.5 + random.uniform(-0.5, 0.5),
-            "current": 1.2 + random.uniform(-0.02, 0.02),
-            "power": 276.6 + random.uniform(-5, 5),
-            "energy": 12.45,
-            "theft": False,
-            "status": "Sensor Not Connected",
-            "ai_status": "AI Not Running",
-            "sensor_connected": False,
-            "is_real": False,
-            "api_key": session.get('api_key', "NOT GENERATED"),
-            "last_update": now_ms
+            **monitor.latest_data,
+            "status": monitor.status,
+            "theft": monitor.is_theft_active,
+            "ai_status": "RUNNING" if model["trained"] else "LEARNING" if model["learningStartTime"] else "OFF",
+            "sensor_connected": monitor.status != "Power OFF",
+            "api_key": db.get("active_api_key"),
+            "theft_logs": db.get("theft_logs"),
+            "learning_progress": learning_progress,
+            "is_real": monitor.status != "Power OFF"
         })
-    
-    # REAL MODE
-    return jsonify({
-        **system_state['latest_data'],
-        "theft": system_state['is_theft_active'],
-        "status": "Sensor Connected",
-        "ai_status": "AI Running" if system_state['learned_current'] is not None else "AI Ready",
-        "sensor_connected": True,
-        "is_real": True,
-        "api_key": session.get('api_key'),
-        "learned_current": system_state['learned_current'],
-        "theft_logs": system_state['theft_logs']
+
+@app.route('/api/start-learning', methods=['POST'])
+def start_learning():
+    model = db.get("ai_model")
+    model.update({
+        "avgVoltage": 0.0, "avgCurrent": 0.0, "avgPower": 0.0,
+        "sampleCount": 0, "trained": False,
+        "learningStartTime": datetime.utcnow().isoformat()
     })
+    db.set("ai_model", model)
+    return jsonify({"success": True})
 
-@app.route('/api/learn', methods=['POST'])
-def learn_pattern():
-    if not system_state['sensor_connected']:
-        return jsonify({"success": False, "message": "Sensor not connected"}), 400
+@app.route('/api/reset-pattern', methods=['POST'])
+def reset_pattern():
+    # 1. Delete old AI learned values
+    db.set("ai_model", {
+        "avgVoltage": 0.0, "avgCurrent": 0.0, "avgPower": 0.0,
+        "sampleCount": 0, "trained": False, "learningStartTime": None
+    })
+    # 2. Delete existing logs
+    db.set("theft_logs", [])
+    db.set("continuous_logs", [])
     
-    avg = request.json.get('average_current')
-    if avg is not None:
-        system_state['learned_current'] = float(avg)
-        return jsonify({"success": True})
-    return jsonify({"success": False}), 400
+    with monitor.lock:
+        monitor.is_theft_active = False
+        
+    return jsonify({"success": True})
 
-@app.route('/api/send-logs', methods=['POST'])
-def manual_send_logs():
-    if system_state['theft_logs']:
-        send_theft_summary()
-        return jsonify({"success": True})
-    return jsonify({"success": False, "message": "No logs to send"})
-
-@app.route('/api/set-active-key', methods=['POST'])
-def set_active_key():
-    global active_api_key
-    active_api_key = request.json.get('api_key')
+@app.route('/api/clear-logs', methods=['POST'])
+def clear_logs():
+    db.set("theft_logs", [])
     return jsonify({"success": True})
 
 if __name__ == "__main__":

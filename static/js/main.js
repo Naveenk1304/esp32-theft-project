@@ -1,8 +1,5 @@
 // State variables
 let charts = {};
-let isLearning = false;
-let learningReadings = [];
-const LEARNING_TARGET = 30;
 
 // Chart.js Configuration
 function createChart(id, label, color) {
@@ -73,42 +70,19 @@ async function fetchLatestData() {
     try {
         const response = await fetch('/api/latest');
         const data = await response.json();
-
         updateUI(data);
-        
-        // Block learning if sensor disconnected
-        if (isLearning) {
-            if (data.is_real) {
-                processLearning(data.current);
-            } else {
-                // If we were learning but sensor disconnected, reset learning
-                isLearning = false;
-                learningReadings = [];
-                document.getElementById('learning-container').style.display = "none";
-                showToast("Learning stopped: Sensor disconnected");
-            }
-        }
-
     } catch (e) {
         console.error("Polling error:", e);
     }
 }
 
 function updateUI(data) {
-    // Stats Update: If not real data, show 0 instead of demo values for numeric fields
-    if (data.is_real) {
-        document.getElementById('val-voltage').innerText = Number(data.voltage).toFixed(1);
-        document.getElementById('val-current').innerText = Number(data.current).toFixed(2);
-        document.getElementById('val-power').innerText = Number(data.power).toFixed(1);
-        document.getElementById('val-energy').innerText = Number(data.energy).toFixed(3);
-    } else {
-        document.getElementById('val-voltage').innerText = "0.0";
-        document.getElementById('val-current').innerText = "0.00";
-        document.getElementById('val-power').innerText = "0.0";
-        document.getElementById('val-energy').innerText = "0.000";
-    }
+    // Stats Update
+    document.getElementById('val-voltage').innerText = Number(data.voltage).toFixed(1);
+    document.getElementById('val-current').innerText = Number(data.current).toFixed(2);
+    document.getElementById('val-power').innerText = Number(data.power).toFixed(1);
+    document.getElementById('val-energy').innerText = Number(data.energy).toFixed(3);
 
-    // Graph still updates real-time with whatever data comes (demo or real)
     updateCharts(data);
 
     // Status Display
@@ -121,6 +95,9 @@ function updateUI(data) {
     const subtext = document.getElementById('indicator-subtext');
     const genBtn = document.getElementById('generateKeyHeaderBtn');
     const learnBtn = document.getElementById('learnBtn');
+    const resetBtn = document.getElementById('resetBtn');
+    const learningContainer = document.getElementById('learning-container');
+    const learningProgress = document.getElementById('learning-progress');
 
     sensorStatus.innerText = data.status.toUpperCase();
     aiStatus.innerText = data.ai_status.toUpperCase();
@@ -129,32 +106,47 @@ function updateUI(data) {
     if (data.sensor_connected) {
         sensorDot.classList.add('connected');
         genBtn.style.display = "none";
-        learnBtn.style.display = (data.ai_status === "AI RUNNING" || isLearning) ? "none" : "block";
-        indicator.innerText = data.theft ? "THEFT DETECTED" : (isLearning ? "LEARNING..." : (data.ai_status === "AI RUNNING" ? "MONITORING" : "AI READY"));
         
-        if (data.theft) {
+        if (data.ai_status === "RUNNING") {
+            learnBtn.style.display = "none";
+            resetBtn.style.display = "block";
+            learningContainer.style.display = "none";
+            indicator.innerText = data.theft ? "THEFT DETECTED" : "MONITORING";
+            aiDot.classList.add('connected');
+        } else if (data.ai_status === "LEARNING") {
+            learnBtn.style.display = "none";
+            resetBtn.style.display = "none";
+            learningContainer.style.display = "block";
+            learningProgress.style.width = (data.learning_progress || 0) + "%";
+            indicator.innerText = "LEARNING...";
+            aiDot.classList.remove('connected');
+        } else {
+            resetBtn.style.display = "none";
+            learnBtn.style.display = "block";
+            learningContainer.style.display = "none";
+            indicator.innerText = "AI READY";
+            aiDot.classList.remove('connected');
+        }
+        
+        if (data.theft && data.ai_status === "RUNNING") {
             indicator.classList.add('theft');
             subtext.innerText = "CRITICAL: ABNORMAL POWER CONSUMPTION";
             subtext.style.color = "#ff3131";
         } else {
             indicator.classList.remove('theft');
-            subtext.innerText = isLearning ? "⚡ Switch ON appliances" : "System Operating Correctly";
+            subtext.innerText = (data.ai_status === "LEARNING") ? "⚡ Switch ON appliances" : "System Operating Correctly";
             subtext.style.color = "#8b949e";
-        }
-
-        if (data.ai_status === "AI RUNNING") {
-            aiDot.classList.add('connected');
-        } else {
-            aiDot.classList.remove('connected');
         }
     } else {
         sensorDot.classList.remove('connected');
         aiDot.classList.remove('connected');
-        genBtn.style.display = "block";
+        genBtn.style.display = (data.api_key) ? "none" : "block";
         learnBtn.style.display = "none";
-        indicator.innerText = "DEMO MODE";
+        resetBtn.style.display = "none";
+        learningContainer.style.display = "none";
+        indicator.innerText = "DEVICE OFFLINE";
         indicator.classList.remove('theft');
-        subtext.innerText = "Put your API key into ESP code";
+        subtext.innerText = data.api_key ? "Waiting for device to connect..." : "Generate API key to begin";
         subtext.style.color = "#8b949e";
     }
 
@@ -172,51 +164,38 @@ function updateUI(data) {
             </tr>`;
             tbody.innerHTML += row;
         });
-    }
-}
-
-function processLearning(current) {
-    learningReadings.push(Number(current));
-    const progress = (learningReadings.length / LEARNING_TARGET) * 100;
-    document.getElementById('learning-progress').style.width = progress + "%";
-    
-    if (learningReadings.length >= LEARNING_TARGET) {
-        const sum = learningReadings.reduce((a, b) => a + b, 0);
-        const avg = sum / learningReadings.length;
-        
-        fetch('/api/learn', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({average_current: avg})
-        }).then(res => {
-            if (res.ok) {
-                isLearning = false;
-                learningReadings = [];
-                document.getElementById('learning-container').style.display = "none";
-                showToast("Learning Complete! AI is now monitoring.");
-            } else {
-                showToast("Learning failed: Sensor disconnected");
-                isLearning = false;
-            }
-        });
+    } else {
+        document.getElementById('theft-table-container').style.display = "none";
     }
 }
 
 async function startLearning() {
-    // Safety: Prevent learning if no real data
     const response = await fetch('/api/latest');
     const data = await response.json();
     
-    if (!data.is_real) {
-        showToast("Cannot start learning in Demo Mode!");
+    if (!data.sensor_connected) {
+        showToast("Device must be connected to start learning!");
         return;
     }
 
-    isLearning = true;
-    learningReadings = [];
-    document.getElementById('learning-container').style.display = "block";
-    document.getElementById('learning-progress').style.width = "0%";
-    document.getElementById('learnBtn').style.display = "none";
+    const res = await fetch('/api/start-learning', { method: 'POST' });
+    if (res.ok) {
+        showToast("Learning process started in background.");
+    }
+}
+
+async function resetPattern() {
+    if (confirm("Reset pattern? This will clear all AI data and logs.")) {
+        const res = await fetch('/api/reset-pattern', { method: 'POST' });
+        if (res.ok) showToast("System reset successfully!");
+    }
+}
+
+async function clearLogs() {
+    if (confirm("Clear all theft logs?")) {
+        const res = await fetch('/api/clear-logs', { method: 'POST' });
+        if (res.ok) showToast("Logs cleared!");
+    }
 }
 
 function generateApiKey() {
@@ -226,15 +205,12 @@ function generateApiKey() {
             if (data.api_key) {
                 document.getElementById('api-key-box').innerText = data.api_key;
                 document.getElementById('api-key-display').innerText = "API KEY: " + data.api_key;
-                
-                // Sync with server active key
                 fetch('/api/set-active-key', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
                     body: JSON.stringify({api_key: data.api_key})
                 });
-
-                showToast("API Key Generated Successfully!");
+                showToast("API Key Generated!");
             }
         });
 }
