@@ -34,12 +34,14 @@ class Database:
                     "avgVoltage": 0.0,
                     "avgCurrent": 0.0,
                     "avgPower": 0.0,
+                    "totalVoltage": 0.0,
+                    "totalCurrent": 0.0,
+                    "totalPower": 0.0,
                     "sampleCount": 0,
                     "trained": False,
                     "learningStartTime": None
                 },
                 "theft_logs": [],
-                "continuous_logs": [],
                 "telegram_history": [],
                 "active_api_key": None
             }
@@ -49,8 +51,23 @@ class Database:
 
     def load(self):
         with self.lock:
-            with open(self.filename, 'r') as f:
-                self.data = json.load(f)
+            try:
+                with open(self.filename, 'r') as f:
+                    self.data = json.load(f)
+                # Migration for ai_model fields
+                if "ai_model" in self.data:
+                    defaults = {
+                        "avgVoltage": 0.0, "avgCurrent": 0.0, "avgPower": 0.0,
+                        "totalVoltage": 0.0, "totalCurrent": 0.0, "totalPower": 0.0,
+                        "sampleCount": 0, "trained": False, "learningStartTime": None
+                    }
+                    for k, v in defaults.items():
+                        if k not in self.data["ai_model"]:
+                            self.data["ai_model"][k] = v
+                if "theft_logs" not in self.data:
+                    self.data["theft_logs"] = []
+            except (FileNotFoundError, json.JSONDecodeError):
+                self.__init__(self.filename)
 
     def save(self):
         with self.lock:
@@ -74,8 +91,7 @@ class MonitoringService:
         }
         self.status = "Power OFF"
         self.is_theft_active = False
-        self.last_log_time = 0
-        self.last_telegram_report = 0
+        self.last_theft_log_time = 0
         self.lock = threading.Lock()
         
         # Start background threads
@@ -102,8 +118,15 @@ class MonitoringService:
             start_time = datetime.fromisoformat(model["learningStartTime"])
             elapsed = (datetime.utcnow() - start_time).total_seconds()
             
+            # Formula: avg = total / samples
+            model["totalVoltage"] += current_data["voltage"]
+            model["totalCurrent"] += current_data["current"]
+            model["totalPower"] += current_data["power"]
+            model["sampleCount"] += 1
+            
+            # Keep EMA smoothing and rolling average logic
             # EMA Smoothing: smoothed = (oldValue * 0.8) + (newValue * 0.2)
-            if model["sampleCount"] == 0:
+            if model["sampleCount"] == 1:
                 model["avgVoltage"] = current_data["voltage"]
                 model["avgCurrent"] = current_data["current"]
                 model["avgPower"] = current_data["power"]
@@ -112,10 +135,14 @@ class MonitoringService:
                 model["avgCurrent"] = (model["avgCurrent"] * 0.8) + (current_data["current"] * 0.2)
                 model["avgPower"] = (model["avgPower"] * 0.8) + (current_data["power"] * 0.2)
             
-            model["sampleCount"] += 1
-            
-            # min 10 mins (600s) OR min 1000 samples
-            if elapsed >= 600 or model["sampleCount"] >= 1000:
+            # Reduce learning duration to 3 minutes (180s)
+            # collect minimum 300 samples
+            if elapsed >= 180 and model["sampleCount"] >= 300:
+                # Finalize averages using total / samples
+                model["avgVoltage"] = model["totalVoltage"] / model["sampleCount"]
+                model["avgCurrent"] = model["totalCurrent"] / model["sampleCount"]
+                model["avgPower"] = model["totalPower"] / model["sampleCount"]
+                
                 model["trained"] = True
                 self.send_telegram_msg("✅ *Learning Complete!*\nAI is now monitoring the grid.")
             
@@ -131,32 +158,11 @@ class MonitoringService:
                     self.status = "Theft Alert"
                     if not self.is_theft_active:
                         self.is_theft_active = True
-                        self._trigger_theft_alert(current_data, avg_current)
+                        self.last_theft_log_time = 0 # Reset to trigger immediate log
                 else:
                     self.is_theft_active = False
         else:
             self.status = "AI READY"
-
-    def _trigger_theft_alert(self, data, learned):
-        ist_now = get_ist_time()
-        timestamp = format_ist(ist_now)
-        
-        # Immediate Telegram Alert
-        msg = f"🚨 *THEFT DETECTED!*\n\n" \
-              f"Current: {data['current']}A\n" \
-              f"Learned: {round(learned, 3)}A\n" \
-              f"Time: {timestamp}"
-        self.send_telegram_msg(msg)
-        
-        # Save Theft Log
-        logs = db.get("theft_logs")
-        logs.append({
-            "timestamp": timestamp,
-            "learned_current": round(learned, 3),
-            "current_now": data["current"],
-            "difference": round(data["current"] - learned, 3)
-        })
-        db.set("theft_logs", logs)
 
     def _background_loop(self):
         while True:
@@ -169,50 +175,50 @@ class MonitoringService:
                         self.status = "Power OFF"
                         self.is_theft_active = False
 
-                # 1 min Logging
-                if now - self.last_log_time >= 60:
-                    self._save_continuous_log()
-                    self.last_log_time = now
-
-                # 2 min Telegram Report
-                if now - self.last_telegram_report >= 120:
-                    self._send_periodic_report()
-                    self.last_telegram_report = now
+                    # Handle Theft Logging every 1 minute
+                    if self.is_theft_active and (now - self.last_theft_log_time >= 60):
+                        self._create_theft_log()
+                        self.last_theft_log_time = now
 
             except Exception as e:
                 print(f"Error in background loop: {e}")
             time.sleep(1)
 
-    def _save_continuous_log(self):
-        with self.lock:
-            if self.status == "Power OFF": return
-            
-            ist_now = get_ist_time()
-            log = {
-                "voltage": self.latest_data["voltage"],
-                "current": self.latest_data["current"],
-                "power": self.latest_data["power"],
-                "status": self.status,
-                "theftDetected": self.is_theft_active,
-                "timestamp": format_ist(ist_now)
-            }
-            logs = db.get("continuous_logs")
-            logs.append(log)
-            db.set("continuous_logs", logs)
-
-    def _send_periodic_report(self):
-        with self.lock:
-            if self.status == "Power OFF": return
-            
-            ist_now = get_ist_time()
-            msg = f"SMART GRID UPDATE\n\n" \
-                  f"Voltage: {int(self.latest_data['voltage'])}V\n" \
-                  f"Current: {self.latest_data['current']}A\n" \
-                  f"Power: {int(self.latest_data['power'])}W\n" \
-                  f"Status: {self.status}\n" \
-                  f"Theft: {'Yes' if self.is_theft_active else 'No'}\n" \
-                  f"Time: {format_ist(ist_now)}"
-            self.send_telegram_msg(msg)
+    def _create_theft_log(self):
+        model = db.get("ai_model")
+        avg_current = model["avgCurrent"]
+        current_data = self.latest_data
+        
+        ist_now = get_ist_time()
+        timestamp = format_ist(ist_now)
+        
+        deviation = round(abs(current_data["current"] - avg_current) / avg_current, 2) if avg_current > 0 else 0
+        
+        log = {
+            "voltage": round(current_data["voltage"], 2),
+            "current": round(current_data["current"], 2),
+            "power": round(current_data["power"], 2),
+            "deviation": deviation,
+            "status": "Theft Alert",
+            "timestamp": timestamp,
+            "learned_current": round(avg_current, 3),
+            "current_now": current_data["current"],
+            "difference": round(current_data["current"] - avg_current, 3)
+        }
+        
+        logs = db.get("theft_logs")
+        logs.append(log)
+        db.set("theft_logs", logs)
+        
+        # Immediate Telegram Alert for the first detection or every 1 min
+        msg = f"🚨 *THEFT DETECTED!*\n\n" \
+              f"Voltage: {log['voltage']}V\n" \
+              f"Current: {log['current']}A\n" \
+              f"Power: {log['power']}W\n" \
+              f"Deviation: {log['deviation']}\n" \
+              f"Status: {log['status']}\n" \
+              f"Time: {timestamp}"
+        self.send_telegram_msg(msg)
 
     def send_telegram_msg(self, message):
         if not TELEGRAM_TOKEN or not TELEGRAM_CHAT_ID: return
@@ -232,7 +238,7 @@ def index():
 @app.route('/login', methods=['POST'])
 def login_api():
     data = request.json
-    if data.get('username') == 'admin' and data.get('password') == '1234':
+    if data.get('username') == 'admin' and data.get('password') == 'NKLOVE':
         session['user'] = 'admin'
         return jsonify({'success': True})
     return jsonify({'success': False, 'message': 'Invalid credentials'})
@@ -281,8 +287,8 @@ def get_latest():
             # Progress based on samples or time
             start_time = datetime.fromisoformat(model["learningStartTime"])
             elapsed = (datetime.utcnow() - start_time).total_seconds()
-            time_progress = (elapsed / 600) * 100
-            sample_progress = (model["sampleCount"] / 1000) * 100
+            time_progress = (elapsed / 180) * 100
+            sample_progress = (model["sampleCount"] / 300) * 100
             learning_progress = min(max(time_progress, sample_progress), 100)
 
         return jsonify({
@@ -302,6 +308,7 @@ def start_learning():
     model = db.get("ai_model")
     model.update({
         "avgVoltage": 0.0, "avgCurrent": 0.0, "avgPower": 0.0,
+        "totalVoltage": 0.0, "totalCurrent": 0.0, "totalPower": 0.0,
         "sampleCount": 0, "trained": False,
         "learningStartTime": datetime.utcnow().isoformat()
     })
@@ -313,15 +320,44 @@ def reset_pattern():
     # 1. Delete old AI learned values
     db.set("ai_model", {
         "avgVoltage": 0.0, "avgCurrent": 0.0, "avgPower": 0.0,
+        "totalVoltage": 0.0, "totalCurrent": 0.0, "totalPower": 0.0,
         "sampleCount": 0, "trained": False, "learningStartTime": None
     })
     # 2. Delete existing logs
     db.set("theft_logs", [])
-    db.set("continuous_logs", [])
     
     with monitor.lock:
         monitor.is_theft_active = False
         
+    return jsonify({"success": True})
+
+@app.route('/api/send-logs', methods=['POST'])
+def send_logs():
+    logs = db.get("theft_logs")
+    if not logs:
+        return jsonify({"success": False, "message": "No theft logs found"})
+    
+    # Get latest log
+    latest = logs[-1]
+    
+    # Format:
+    # SMART GRID THEFT LOG REPORT
+    # Voltage: 228V
+    # Current: 3.82A
+    # Power: 912W
+    # Deviation: 0.74
+    # Status: Theft Alert
+    # Time: 07-May-2026 02:15 PM IST
+    
+    msg = f"SMART GRID THEFT LOG REPORT\n\n" \
+          f"Voltage: {latest['voltage']}V\n" \
+          f"Current: {latest['current']}A\n" \
+          f"Power: {latest['power']}W\n" \
+          f"Deviation: {latest['deviation']}\n" \
+          f"Status: {latest['status']}\n" \
+          f"Time: {latest['timestamp']}"
+    
+    monitor.send_telegram_msg(msg)
     return jsonify({"success": True})
 
 @app.route('/api/clear-logs', methods=['POST'])
